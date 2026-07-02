@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NotebookLM Local</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">📓 NotebookLM <span>Local</span></div>
+    <div class="nb-controls">
+      <select id="nb-select"></select>
+      <button id="nb-new" title="New notebook">＋ New</button>
+      <button id="nb-delete" class="danger" title="Delete notebook">🗑</button>
+    </div>
+    <div class="model-badge" id="model-badge"></div>
+  </header>
+
+  <main>
+    <!-- Sources panel -->
+    <section class="panel" id="sources-panel">
+      <h2>Sources</h2>
+      <div class="add-source">
+        <label class="btn file-btn">
+          Upload file
+          <input type="file" id="file-input" accept=".pdf,.txt,.md,.markdown,.csv,.html,.json" multiple hidden />
+        </label>
+        <div class="url-row">
+          <input type="url" id="url-input" placeholder="Paste a URL…" />
+          <button id="url-add">Add</button>
+        </div>
+      </div>
+      <ul id="source-list"></ul>
+      <div class="hint" id="sources-hint">Upload PDFs, text files, or URLs to get started.</div>
+    </section>
+
+    <!-- Chat panel -->
+    <section class="panel" id="chat-panel">
+      <div id="messages"></div>
+      <form id="chat-form">
+        <input type="text" id="chat-input" placeholder="Ask about your sources…" autocomplete="off" />
+        <button type="submit" id="chat-send">Send</button>
+      </form>
+    </section>
+
+    <!-- Studio panel -->
+    <section class="panel" id="studio-panel">
+      <h2>Studio</h2>
+      <div class="studio-grid">
+        <button class="studio-btn" disabled>🎙 Audio Overview<span>Phase 3</span></button>
+        <button class="studio-btn" disabled>📄 Briefing Doc<span>Phase 2</span></button>
+        <button class="studio-btn" disabled>📚 Study Guide<span>Phase 2</span></button>
+        <button class="studio-btn" disabled>❓ FAQ<span>Phase 2</span></button>
+        <button class="studio-btn" disabled>🕰 Timeline<span>Phase 2</span></button>
+        <button class="studio-btn" disabled>🧠 Mind Map<span>Phase 2</span></button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Citation modal -->
+  <div id="modal-backdrop" hidden>
+    <div id="modal">
+      <div id="modal-header">
+        <span id="modal-title"></span>
+        <button id="modal-close">✕</button>
+      </div>
+      <pre id="modal-body"></pre>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
