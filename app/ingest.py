@@ -3,6 +3,7 @@ from pathlib import Path
 
 import fitz  # PyMuPDF
 import trafilatura
+from docx import Document as DocxDocument
 
 TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".rst", ".csv", ".json", ".html", ".htm"}
 
@@ -21,6 +22,29 @@ def parse_pdf(path: Path) -> list[tuple[int, str]]:
     if not segments:
         raise IngestError("No extractable text found in PDF (is it scanned images?)")
     return segments
+
+
+def parse_docx(path: Path) -> list[tuple[int | None, str]]:
+    doc = DocxDocument(str(path))
+    parts: list[str] = []
+    for para in doc.paragraphs:
+        text = para.text.strip()
+        if not text:
+            continue
+        # keep heading structure visible to the chunker as paragraph breaks
+        if para.style.name.startswith("Heading"):
+            parts.append(f"\n{text}")
+        else:
+            parts.append(text)
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [c.text.strip() for c in row.cells if c.text.strip()]
+            if cells:
+                parts.append(" | ".join(cells))
+    text = "\n\n".join(parts).strip()
+    if not text:
+        raise IngestError("No extractable text found in DOCX")
+    return [(None, text)]
 
 
 def parse_text_file(path: Path) -> list[tuple[int | None, str]]:
@@ -49,6 +73,10 @@ def parse_file(path: Path) -> tuple[str, int | None, list[tuple[int | None, str]
     if suffix == ".pdf":
         segments = parse_pdf(path)
         return "pdf", segments[-1][0], segments
+    if suffix == ".docx":
+        return "docx", None, parse_docx(path)
     if suffix in TEXT_SUFFIXES or suffix == "":
         return "text", None, parse_text_file(path)
-    raise IngestError(f"Unsupported file type: {suffix} (supported: .pdf, {', '.join(sorted(TEXT_SUFFIXES))})")
+    raise IngestError(
+        f"Unsupported file type: {suffix} (supported: .pdf, .docx, {', '.join(sorted(TEXT_SUFFIXES))})"
+    )
