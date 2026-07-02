@@ -123,6 +123,23 @@ main {
 .studio-btn { text-align: left; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; }
 .studio-btn span { color: var(--muted); font-size: 11.5px; }
 
+#audio-result {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#audio-title { font-weight: 600; font-size: 13.5px; }
+#audio-player { width: 100%; }
+#audio-download { color: var(--accent-2); font-size: 12.5px; text-decoration: none; }
+#audio-download:hover { text-decoration: underline; }
+.studio-btn.busy { border-color: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.55; } }
+
 /* Modal */
 #modal-backdrop {
   position: fixed; inset: 0;

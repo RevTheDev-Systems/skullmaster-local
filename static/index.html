@@ -48,12 +48,15 @@
     <section class="panel" id="studio-panel">
       <h2>Studio</h2>
       <div class="studio-grid">
-        <button class="studio-btn" disabled>🎙 Audio Overview<span>Phase 3</span></button>
-        <button class="studio-btn" disabled>📄 Briefing Doc<span>Phase 2</span></button>
-        <button class="studio-btn" disabled>📚 Study Guide<span>Phase 2</span></button>
-        <button class="studio-btn" disabled>❓ FAQ<span>Phase 2</span></button>
-        <button class="studio-btn" disabled>🕰 Timeline<span>Phase 2</span></button>
-        <button class="studio-btn" disabled>🧠 Mind Map<span>Phase 2</span></button>
+        <button class="studio-btn" id="audio-overview-btn">🎙 Audio Overview<span id="audio-overview-status">Two-host podcast from your sources</span></button>
+        <button class="studio-btn" disabled>📄 Briefing Doc<span>Future work</span></button>
+        <button class="studio-btn" disabled>📚 Study Guide<span>Future work</span></button>
+        <button class="studio-btn" disabled>🧠 Mind Map<span>Future work</span></button>
+      </div>
+      <div id="audio-result" hidden>
+        <div id="audio-title"></div>
+        <audio id="audio-player" controls></audio>
+        <a id="audio-download" download>Download</a>
       </div>
     </section>
   </main>

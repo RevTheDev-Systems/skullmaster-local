@@ -240,11 +240,37 @@ $("#chat-form").addEventListener("submit", async (e) => {
   }
 });
 
+// ---------- Studio: Audio Overview ----------
+$("#audio-overview-btn").addEventListener("click", async () => {
+  if (!state.current) return;
+  const btn = $("#audio-overview-btn");
+  const status = $("#audio-overview-status");
+  btn.disabled = true;
+  btn.classList.add("busy");
+  status.textContent = "Writing script + synthesizing… (a few minutes)";
+  $("#audio-result").hidden = true;
+  try {
+    const meta = await api(`/api/notebooks/${state.current}/audio-overview`, { method: "POST" });
+    $("#audio-title").textContent = `${meta.title} · ${Math.round(meta.duration_seconds)}s`;
+    $("#audio-player").src = meta.url;
+    $("#audio-download").href = meta.url;
+    $("#audio-result").hidden = false;
+    status.textContent = "Two-host podcast from your sources";
+  } catch (err) {
+    alert(`Audio Overview failed: ${err.message}`);
+    status.textContent = "Two-host podcast from your sources";
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("busy");
+  }
+});
+
 // ---------- Init ----------
 (async () => {
   try {
     const health = await api("/api/health");
-    $("#model-badge").textContent = `model: ${health.chat_model}`;
+    $("#model-badge").textContent =
+      `chat: ${health.llm.chat_model} · embed: ${health.llm.embed_model} · tts: ${health.tts.backend}`;
   } catch {
     $("#model-badge").textContent = "⚠ backend unreachable";
   }

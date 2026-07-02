@@ -172,6 +172,30 @@ def chat(notebook_id: str, body: ChatIn):
     return StreamingResponse(sse(), media_type="text/event-stream")
 
 
+# ---------- Studio: Audio Overview ----------
+
+@app.post("/api/notebooks/{notebook_id}/audio-overview")
+def audio_overview(notebook_id: str):
+    if not db.get_notebook(notebook_id):
+        raise HTTPException(404, "Notebook not found")
+    from . import studio
+    try:
+        meta = studio.generate_audio_overview(notebook_id)
+    except studio.StudioError as e:
+        raise HTTPException(422, str(e))
+    meta["url"] = f"/api/audio/{meta['filename']}"
+    return meta
+
+
+@app.get("/api/audio/{filename}")
+def get_audio(filename: str):
+    safe = Path(filename).name
+    path = AUDIO_DIR / safe
+    if not path.exists():
+        raise HTTPException(404, "Audio not found")
+    return FileResponse(path, media_type="audio/wav", filename=safe)
+
+
 # ---------- Static UI ----------
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

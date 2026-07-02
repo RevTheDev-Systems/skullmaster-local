@@ -78,6 +78,20 @@ def _notebook_rows(notebook_id: str) -> list[dict]:
     )
 
 
+def notebook_chunks(notebook_id: str) -> list[dict]:
+    """All chunks for a notebook (used by Studio artifact generation)."""
+    return [
+        {
+            "source_id": r["source_id"],
+            "source_name": r["source_name"],
+            "page": r["page"] if r["page"] >= 0 else None,
+            "seq": r["seq"],
+            "text": r["text"],
+        }
+        for r in _notebook_rows(notebook_id)
+    ]
+
+
 def status() -> dict:
     tbl = _table()
     return {
