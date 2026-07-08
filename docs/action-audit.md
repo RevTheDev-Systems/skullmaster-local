@@ -1,0 +1,47 @@
+# SkullMaster Local — Action & Button Audit
+
+Every interactive control in the application, audited 2026-07-08 against the
+running app (real Ollama models, real browser). "Tested" means the actual
+workflow was exercised, not just the code read.
+
+Global behaviors that apply to every control:
+- All buttons are real `<button>` elements (keyboard operable, focus-visible outline).
+- Errors surface as toasts or inline message bubbles — never silent, never `alert()`.
+- No placeholder/dead controls exist (the former disabled Studio placeholders were removed).
+- No unhandled console errors observed across the full E2E run.
+
+| Screen | Control (accessible name) | Action | Backend / behavior | Loading | Success | Error | Disabled logic | Tested |
+|---|---|---|---|---|---|---|---|---|
+| Header | Notebook select | Switch notebook | `GET sources/messages/audio-overviews` | — | Panels reload | Toast | — | ✅ |
+| Header | ＋ New | Create notebook | `POST /api/notebooks` | — | Select updates + success toast | Toast | — | ✅ |
+| Header | ✏️ Rename | Rename notebook (prompt + confirm) | `PATCH /api/notebooks/{id}` | — | Select label updates + toast | Toast | No-op when unchanged/empty | ✅ |
+| Header | 🗑 Delete | Delete notebook (confirm dialog) | `DELETE /api/notebooks/{id}` | — | Next notebook loads + toast | Toast | No-op without selection | ✅ |
+| Header | ⟳ Refresh model status | Re-check health | `GET /api/health` | "checking…" | Model badge text | Red badge (Ollama unreachable / model missing) | — | ✅ |
+| Header | 🌙/☀️ Theme toggle | Light ⇄ dark theme | localStorage `skullmaster-theme` | — | Instant theme + icon swap | n/a | — | ✅ |
+| Sources | 📄 Upload file | Open file picker, ingest | `POST …/sources/file` | Button disabled + progress banner (n/m for multi-file) | Source row + toast | Toast per file (422 unsupported/empty, 409 duplicate, 413 too large, 503 embed) | Disabled while any ingestion runs | ✅ |
+| Sources | URL input + Add (form submit) | Fetch & ingest URL | `POST …/sources/url` | Inputs disabled + progress banner | Row + toast, input cleared | Toast (non-http(s) rejected, timeout, size cap, duplicate) | Disabled while ingesting; `required` blocks empty | ✅ |
+| Sources | ↻ Retry indexing (failed rows only) | Re-index failed source | `POST …/sources/{id}/retry` | Button disabled | Row turns ready + toast | Toast, row stays failed with error text | Only rendered for `status=failed` | ✅ (via automated test; UI path shares handler) |
+| Sources | ✕ Remove source (confirm) | Delete source + vectors + stored file | `DELETE …/sources/{id}` | Button disabled | Row removed, counts update | Toast | — | ✅ (vector removal verified in LanceDB) |
+| Chat | Question input + Send (form submit) | Grounded cited answer | `POST …/chat` (SSE) | Send disabled, "Searching sources…" bubble, streamed tokens | Cited answer, chips clickable, persisted | Inline red error bubble | Disabled while streaming; empty input no-op | ✅ |
+| Chat | Citation chip [n] | Open source passage | Client-side (citations payload) | — | Modal with source name + page + exact excerpt | n/a (invalid markers stripped server-side) | — | ✅ |
+| Chat | Clear chat (confirm) | Wipe notebook chat history | `DELETE …/messages` | — | Empty state shown | Toast | No-op when history empty | ✅ |
+| Modal | ✕ Close | Close citation modal | Client-side | — | Modal hidden | n/a | — | ✅ (click, backdrop click, and Esc) |
+| Studio | 🎙 Generate Audio Overview | Script + TTS → WAV | `POST …/audio-overview` | Disabled + pulse + status text | New list entry + success toast | Toast (422 no sources, 409 already running) | Disabled while generating; server lock blocks parallel jobs from other tabs | ✅ (real qwen3:30b + kokoro, 143.8s WAV) |
+| Studio | Audio player | Play/pause/seek | `GET /api/audio/{file}` | Browser native | Playback | Browser native | — | ✅ (played, paused, seeked to 60s) |
+| Studio | ⬇ Download WAV | Save audio file | Same endpoint, `download` attr | Browser native | File saved | Browser native | — | ✅ (200, audio/wav) |
+
+## Edge cases exercised
+
+- **Empty notebook chat** → model declines ("couldn't find this in your sources").
+- **Unanswerable question with sources** → declined with explanation, no hallucination.
+- **Answerable question** → correct answer, valid clickable `[1]` citation opening
+  the exact PDF passage with page number.
+- **Duplicate upload** → 409 toast "Already in this notebook as …".
+- **file:// URL** → 422 "Only http:// and https:// URLs can be ingested".
+- **Double-click Generate Audio** → second click is a no-op (client) and 409 (server).
+- **Refresh mid-session** → notebooks, sources, chat (with citation chips), audio list all restore.
+- **Full server restart** → all data persists.
+- **Rename → remove source → delete notebook** → vectors, uploads, audio files,
+  messages, and metadata rows all verifiably removed.
+- **Mobile width (≤980px)** → single-column layout, no overflow.
+- **Keyboard** → all 14 visible controls focusable, labeled, Esc closes modal.
