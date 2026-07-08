@@ -34,3 +34,15 @@ class TTSProvider(Protocol):
     def status(self) -> dict:
         """{backend, ready, detail}."""
         ...
+
+
+class STTProvider(Protocol):
+    """Speech-to-text backend for video/audio source transcription."""
+
+    def transcribe(self, path: str) -> list[dict]:
+        """Returns segments: [{"start": float_seconds, "end": float_seconds, "text": str}]."""
+        ...
+
+    def status(self) -> dict:
+        """{backend, model, ready, detail}."""
+        ...

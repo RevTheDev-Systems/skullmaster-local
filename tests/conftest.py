@@ -15,7 +15,7 @@ os.environ["NLM_DATA_DIR"] = _TMP
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import db, main, rag, store, studio  # noqa: E402
+from app import db, ingest, main, rag, store, studio  # noqa: E402
 
 
 class MockLLM:
@@ -44,7 +44,22 @@ class MockLLM:
             else:
                 reply = "The answer is in the sources [1]. Bogus claim [9]."
             return iter([reply[: len(reply) // 2], reply[len(reply) // 2:]])
-        # non-stream call == podcast script generation
+        # non-stream calls are Studio generations — dispatch on the prompt
+        if "data-visualization" in system:
+            return json.dumps({"title": "Mock Chart", "type": "bar",
+                               "x_label": "X", "y_label": "Y",
+                               "labels": ["A", "B", "C"], "values": [1, 2, 3],
+                               "source_note": "mock sources"})
+        if "information designer" in system:
+            return json.dumps({"title": "Mock Infographic", "subtitle": "sub",
+                               "stats": [{"value": "42", "label": "answer"}],
+                               "sections": [{"heading": "H", "points": ["p1", "p2"]}],
+                               "source_note": "mock sources"})
+        if "data-extraction" in system:
+            return json.dumps({"title": "Mock Table",
+                               "columns": ["Name", "Value"],
+                               "rows": [["a", 1], ["b", 2]],
+                               "source_note": "mock sources"})
         assert "podcast" in system.lower() or "host" in system.lower()
         lines = [{"speaker": "A" if i % 2 == 0 else "B",
                   "text": f"Line {i} about the sources."} for i in range(6)]
@@ -71,15 +86,31 @@ class MockTTS:
         return {"backend": "mock-tts", "ready": True, "detail": "mock"}
 
 
+class MockSTT:
+    segments = [
+        {"start": 0.0, "end": 3.0, "text": "The zephyr wombat festival happens every March."},
+        {"start": 3.0, "end": 6.5, "text": "Tickets cost 42 tugrik."},
+    ]
+
+    def transcribe(self, path):
+        return list(self.segments)
+
+    def status(self):
+        return {"backend": "mock-stt", "model": "mock", "ready": True, "detail": "mock"}
+
+
 @pytest.fixture()
 def mock_llm(monkeypatch):
     llm = MockLLM()
     tts = MockTTS()
-    for mod in (main, rag, store, studio):
+    stt = MockSTT()
+    for mod in (main, rag, store, studio, ingest):
         if hasattr(mod, "get_llm"):
             monkeypatch.setattr(mod, "get_llm", lambda llm=llm: llm)
         if hasattr(mod, "get_tts"):
             monkeypatch.setattr(mod, "get_tts", lambda tts=tts: tts)
+        if hasattr(mod, "get_stt"):
+            monkeypatch.setattr(mod, "get_stt", lambda stt=stt: stt)
     return llm
 
 

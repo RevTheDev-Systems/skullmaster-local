@@ -19,7 +19,8 @@ from .config import (
     TTS_MODEL,
     UPLOADS_DIR,
 )
-from .providers import get_llm, get_tts
+from .config import STT_MODEL  # noqa: E402  (grouped with config imports above)
+from .providers import get_llm, get_stt, get_tts
 
 GREEN, RED, YELLOW, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[0m"
 
@@ -70,6 +71,14 @@ def main() -> int:
     else:
         ok &= check(f"tts ({TTS_MODEL})", tts.get("ready", False), tts.get("detail", ""),
                     "set TTS_MODEL=kokoro (portable) or TTS_MODEL=say (macOS) in .env")
+
+    print("\nSTT backend (video/audio transcription)")
+    stt = get_stt().status()
+    if "download" in stt.get("detail", ""):
+        print(f"  [{YELLOW}WARN{RESET}] stt ({STT_MODEL}): {stt['detail']}")
+    else:
+        ok &= check(f"stt ({STT_MODEL})", stt.get("ready", False), stt.get("detail", ""),
+                    "set STT_MODEL=whisper-<tiny|base|small|medium|large-v3> in .env")
 
     print()
     if ok:

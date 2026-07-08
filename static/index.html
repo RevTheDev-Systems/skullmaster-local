@@ -30,9 +30,9 @@
       <h2>Sources</h2>
       <div class="add-source">
         <button type="button" class="btn primary" id="file-btn">📄 Upload file
-          <span class="btn-sub">PDF, DOCX, TXT, MD…</span>
+          <span class="btn-sub">PDF, DOCX, TXT, XLSX, video, audio…</span>
         </button>
-        <input type="file" id="file-input" accept=".pdf,.docx,.txt,.md,.markdown,.csv,.html,.json,.rst" multiple hidden />
+        <input type="file" id="file-input" accept=".pdf,.docx,.txt,.md,.markdown,.csv,.tsv,.html,.json,.rst,.xlsx,.xlsm,.mp4,.mov,.m4v,.webm,.mkv,.avi,.mp3,.wav,.m4a,.flac,.ogg,.aac" multiple hidden />
         <form class="url-row" id="url-form">
           <label class="visually-hidden" for="url-input">URL to ingest</label>
           <input type="url" id="url-input" placeholder="Paste a URL…" required />
@@ -74,9 +74,18 @@
         🎙 Generate Audio Overview
         <span class="btn-sub" id="audio-overview-status">Two-host podcast from your sources</span>
       </button>
-      <ul id="audio-list" aria-label="Generated audio overviews"></ul>
-      <div class="empty-state small" id="audio-empty">
-        <p class="muted">No audio overviews yet. Generation takes a few minutes and runs entirely on this machine.</p>
+      <div class="artifact-buttons">
+        <button type="button" class="btn" id="gen-chart" data-kind="chart" title="Generate a chart from your sources">📊 Chart</button>
+        <button type="button" class="btn" id="gen-infographic" data-kind="infographic" title="Generate an infographic from your sources">🪧 Infographic</button>
+        <button type="button" class="btn" id="gen-spreadsheet" data-kind="spreadsheet" title="Extract a spreadsheet from your sources">📋 Spreadsheet</button>
+      </div>
+      <div class="progress" id="artifact-progress" hidden role="status"></div>
+      <div class="studio-scroll">
+        <ul id="audio-list" aria-label="Generated audio overviews"></ul>
+        <ul id="artifact-list" aria-label="Generated artifacts"></ul>
+        <div class="empty-state small" id="studio-empty">
+          <p class="muted">Nothing generated yet. Audio overviews, charts, infographics, and spreadsheets are all grounded in this notebook's sources and run entirely on this machine.</p>
+        </div>
       </div>
       <p class="footnote">Video overviews, slide decks, and web research are future work.</p>
     </section>
@@ -87,9 +96,37 @@
     <div id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div id="modal-header">
         <span id="modal-title"></span>
-        <button id="modal-close" type="button" aria-label="Close citation view">✕</button>
+        <div class="modal-header-actions">
+          <button id="modal-play" type="button" hidden>▶ Play</button>
+          <button id="modal-close" type="button" aria-label="Close citation view">✕</button>
+        </div>
       </div>
       <pre id="modal-body"></pre>
+    </div>
+  </div>
+
+  <!-- Media playback modal -->
+  <div id="media-backdrop" class="backdrop" hidden>
+    <div id="media-modal" role="dialog" aria-modal="true" aria-labelledby="media-title">
+      <div id="modal-header">
+        <span id="media-title"></span>
+        <button id="media-close" type="button" aria-label="Close player">✕</button>
+      </div>
+      <div id="media-body"></div>
+    </div>
+  </div>
+
+  <!-- Artifact view modal -->
+  <div id="artifact-backdrop" class="backdrop" hidden>
+    <div id="artifact-modal" role="dialog" aria-modal="true" aria-labelledby="artifact-title">
+      <div id="modal-header">
+        <span id="artifact-title"></span>
+        <div class="modal-header-actions">
+          <span id="artifact-actions"></span>
+          <button id="artifact-close" type="button" aria-label="Close artifact view">✕</button>
+        </div>
+      </div>
+      <div id="artifact-body"></div>
     </div>
   </div>
 

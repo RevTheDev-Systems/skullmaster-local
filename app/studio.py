@@ -144,3 +144,107 @@ def generate_audio_overview(notebook_id: str) -> dict:
     meta = synthesize_podcast(notebook_id, script)
     meta["script"] = script["lines"]
     return meta
+
+
+# ---------- Studio artifacts: chart / infographic / spreadsheet ----------
+
+ARTIFACT_PROMPTS = {
+    "chart": "chart_spec",
+    "infographic": "infographic_spec",
+    "spreadsheet": "spreadsheet_spec",
+}
+
+
+def _validate_artifact_spec(kind: str, spec: dict) -> dict:
+    """Shape-check the model's JSON so the client renderer never sees garbage."""
+    if "error" in spec:
+        raise StudioError(spec["error"])
+    if not isinstance(spec.get("title"), str) or not spec["title"].strip():
+        raise ValueError("missing title")
+
+    if kind == "chart":
+        if spec.get("type") not in ("bar", "line", "pie"):
+            raise ValueError("chart type must be bar, line, or pie")
+        labels, values = spec.get("labels"), spec.get("values")
+        if (not isinstance(labels, list) or not isinstance(values, list)
+                or len(labels) != len(values) or not 2 <= len(labels) <= 12):
+            raise ValueError("labels/values must be equal-length lists (2-12)")
+        spec["values"] = [float(v) for v in values]
+        spec["labels"] = [str(l) for l in labels]
+        spec.setdefault("x_label", "")
+        spec.setdefault("y_label", "")
+
+    elif kind == "infographic":
+        stats, sections = spec.get("stats"), spec.get("sections")
+        if not isinstance(stats, list) or not 1 <= len(stats) <= 6:
+            raise ValueError("stats must be a list of 1-6 entries")
+        for s in stats:
+            if not (isinstance(s, dict) and s.get("value") and s.get("label")):
+                raise ValueError("each stat needs value and label")
+        if not isinstance(sections, list) or not sections:
+            raise ValueError("sections must be a non-empty list")
+        for sec in sections:
+            if not (isinstance(sec, dict) and sec.get("heading")
+                    and isinstance(sec.get("points"), list) and sec["points"]):
+                raise ValueError("each section needs heading and points")
+
+    elif kind == "spreadsheet":
+        cols, rows = spec.get("columns"), spec.get("rows")
+        if not isinstance(cols, list) or not cols:
+            raise ValueError("columns must be a non-empty list")
+        if not isinstance(rows, list) or not 1 <= len(rows) <= 200:
+            raise ValueError("rows must be a list of 1-200 entries")
+        width = len(cols)
+        spec["rows"] = [(list(r) + [""] * width)[:width] for r in rows]
+
+    else:
+        raise StudioError(f"Unknown artifact kind: {kind}")
+
+    spec.setdefault("source_note", "")
+    return spec
+
+
+def generate_artifact_spec(notebook_id: str, kind: str) -> dict:
+    """Grounded artifact spec via the LLM, validated; one retry on bad shape."""
+    if kind not in ARTIFACT_PROMPTS:
+        raise StudioError(f"Unknown artifact kind: {kind}")
+    context = _gather_context(notebook_id)
+    messages = [
+        {"role": "system", "content": load_prompt(ARTIFACT_PROMPTS[kind])},
+        {"role": "user", "content": f"Source material:\n\n{context}\n\nProduce the JSON now."},
+    ]
+    llm = get_llm()
+    last_err = None
+    for attempt in range(2):
+        raw = llm.chat(messages)
+        try:
+            return _validate_artifact_spec(kind, _extract_json(raw))
+        except StudioError:
+            raise  # model correctly reported unusable sources — don't retry
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
+            last_err = e
+            log.warning("Artifact spec parse failed (attempt %d): %s", attempt + 1, e)
+            messages.append({"role": "assistant", "content": raw[:4000]})
+            messages.append({
+                "role": "user",
+                "content": f"That was invalid ({e}). Return ONLY the JSON object in the required shape.",
+            })
+    raise StudioError(f"Could not get a valid {kind} from the model: {last_err}")
+
+
+def write_xlsx(spec: dict, path) -> None:
+    """Materialize a spreadsheet spec as a real .xlsx file."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    wb = Workbook()
+    ws = wb.active
+    ws.title = spec["title"][:31] or "Data"
+    ws.append(spec["columns"])
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for row in spec["rows"]:
+        ws.append(row)
+    for i, col in enumerate(spec["columns"], start=1):
+        width = max([len(str(col))] + [len(str(r[i - 1])) for r in spec["rows"]])
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = min(width + 2, 50)
+    wb.save(str(path))

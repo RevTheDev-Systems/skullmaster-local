@@ -226,8 +226,30 @@ main {
 
 /* ---------- Studio ---------- */
 .studio-btn { text-align: left; width: 100%; }
-.studio-btn.busy { animation: pulse 1.2s ease-in-out infinite; }
+.studio-btn.busy, .artifact-buttons button.busy { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.6; } }
+.artifact-buttons { display: flex; gap: 6px; margin-top: 8px; }
+.artifact-buttons button { flex: 1; padding: 7px 4px; font-size: 12.5px; }
+#artifact-progress { margin-top: 8px; margin-bottom: 0; }
+.studio-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+#artifact-list { list-style: none; margin: 8px 0 0; padding: 0; }
+#artifact-list li {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 9px 10px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+#artifact-list .art-title {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: none; border: none; padding: 0; text-align: left;
+  color: var(--accent-text); font-weight: 600; font-size: 13px; cursor: pointer;
+}
+#artifact-list .art-title:hover { text-decoration: underline; background: none; }
 #audio-list { margin-top: 12px; }
 #audio-list li {
   border: 1px solid var(--border);
@@ -245,14 +267,41 @@ main {
 .audio-download { color: var(--accent-text); font-size: 12.5px; text-decoration: none; font-weight: 600; }
 .audio-download:hover { text-decoration: underline; }
 
-/* ---------- Modal ---------- */
-#modal-backdrop[hidden] { display: none; }
-#modal-backdrop {
+/* ---------- Modals ---------- */
+#modal-backdrop[hidden], .backdrop[hidden] { display: none; }
+#modal-backdrop, .backdrop {
   position: fixed; inset: 0;
   background: rgba(20, 20, 40, 0.45);
   display: flex; align-items: center; justify-content: center;
   z-index: 50;
 }
+.modal-header-actions { display: flex; gap: 8px; align-items: center; }
+#modal-play { font-size: 12.5px; padding: 4px 10px; color: var(--accent-text); }
+
+#media-modal, #artifact-modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+  width: min(860px, 94vw);
+  max-height: 88vh;
+  display: flex; flex-direction: column;
+}
+#media-close, #artifact-close { background: none; border: none; font-size: 15px; color: var(--muted); }
+#media-close:hover, #artifact-close:hover { color: var(--text); background: var(--panel-2); }
+#media-body { padding: 12px; }
+#media-body video { width: 100%; max-height: 68vh; border-radius: 8px; background: #000; }
+#media-body audio { width: 100%; }
+#artifact-body { padding: 16px; overflow: auto; }
+#artifact-body svg { width: 100%; height: auto; background: #fff; border-radius: 8px; }
+#artifact-body .source-note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+#artifact-body table {
+  border-collapse: collapse; width: 100%; font-size: 13px;
+}
+#artifact-body th, #artifact-body td {
+  border: 1px solid var(--border); padding: 6px 9px; text-align: left;
+}
+#artifact-body th { background: var(--panel-2); font-weight: 700; }
 #modal {
   background: var(--panel);
   border: 1px solid var(--border);

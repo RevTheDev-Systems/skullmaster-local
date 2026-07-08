@@ -1,8 +1,8 @@
-"""Provider factory. App code imports get_llm() / get_tts() — never a concrete backend."""
+"""Provider factory. App code imports get_llm() / get_tts() / get_stt() — never a concrete backend."""
 from functools import lru_cache
 
-from ..config import LLM_PROVIDER, TTS_MODEL
-from .base import LLMProvider, TTSProvider
+from ..config import LLM_PROVIDER, STT_MODEL, TTS_MODEL
+from .base import LLMProvider, STTProvider, TTSProvider
 
 
 @lru_cache(maxsize=1)
@@ -11,6 +11,14 @@ def get_llm() -> LLMProvider:
         from .ollama_provider import OllamaProvider
         return OllamaProvider()
     raise ValueError(f"Unknown LLM_PROVIDER: {LLM_PROVIDER!r} (supported: ollama)")
+
+
+@lru_cache(maxsize=1)
+def get_stt() -> STTProvider:
+    if STT_MODEL.startswith("whisper-"):
+        from .stt_whisper import WhisperSTT
+        return WhisperSTT(STT_MODEL.removeprefix("whisper-"))
+    raise ValueError(f"Unknown STT_MODEL: {STT_MODEL!r} (supported: whisper-<size>)")
 
 
 @lru_cache(maxsize=1)

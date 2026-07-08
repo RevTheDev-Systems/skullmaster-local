@@ -15,11 +15,12 @@ DATA_DIR = Path(os.environ.get("NLM_DATA_DIR", PROJECT_ROOT / "data"))
 UPLOADS_DIR = DATA_DIR / "uploads"
 LANCEDB_DIR = DATA_DIR / "lancedb"
 AUDIO_DIR = DATA_DIR / "audio"
+ARTIFACTS_DIR = DATA_DIR / "artifacts"    # generated spreadsheets etc.
 MODELS_DIR = PROJECT_ROOT / "models"      # local TTS weights
 SQLITE_PATH = DATA_DIR / "notebooks.db"
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
-for d in (DATA_DIR, UPLOADS_DIR, LANCEDB_DIR, AUDIO_DIR, MODELS_DIR):
+for d in (DATA_DIR, UPLOADS_DIR, LANCEDB_DIR, AUDIO_DIR, ARTIFACTS_DIR, MODELS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 # ---- Providers & models (env-only; see .env.example) ----
@@ -30,6 +31,9 @@ EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
 TTS_MODEL = os.environ.get("TTS_MODEL", "kokoro")
 TTS_VOICE_A = os.environ.get("TTS_VOICE_A", "af_heart")
 TTS_VOICE_B = os.environ.get("TTS_VOICE_B", "am_michael")
+# Speech-to-text for video/audio sources: "whisper-<size>" via faster-whisper
+# (tiny | base | small | medium | large-v3). Weights download once on first use.
+STT_MODEL = os.environ.get("STT_MODEL", "whisper-base")
 
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8501"))
@@ -46,8 +50,12 @@ PODCAST_CONTEXT_CHARS = 24_000  # max source characters fed to the script writer
 
 # ---- Ingestion safety limits ----
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "50")) * 1024 * 1024
+MEDIA_MAX_UPLOAD_BYTES = int(os.environ.get("MEDIA_MAX_UPLOAD_MB", "1024")) * 1024 * 1024
 URL_FETCH_TIMEOUT = 20          # seconds
 URL_MAX_BYTES = 10 * 1024 * 1024
+
+# ---- Studio artifacts ----
+ARTIFACT_CONTEXT_CHARS = 24_000  # max source characters fed to artifact generation
 
 
 def load_prompt(name: str) -> str:

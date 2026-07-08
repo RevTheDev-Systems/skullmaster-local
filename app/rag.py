@@ -2,16 +2,31 @@
 import re
 from collections.abc import Iterator
 
+from . import db
 from .config import CONTEXT_HISTORY_TURNS, TOP_K, load_prompt
 from .providers import get_llm
 from .store import hybrid_search
 
 
+def format_timestamp(seconds: int) -> str:
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+def _location(c: dict) -> str:
+    """Human label for where an excerpt sits inside its source."""
+    if c.get("kind") in ("video", "audio") and c.get("page") is not None:
+        return f" (at {format_timestamp(c['page'])})"
+    if c.get("page"):
+        return f" (page {c['page']})"
+    return ""
+
+
 def _format_excerpts(chunks: list[dict]) -> str:
     parts = []
     for i, c in enumerate(chunks, start=1):
-        loc = f" (page {c['page']})" if c.get("page") else ""
-        parts.append(f"[{i}] — from \"{c['source_name']}\"{loc}:\n{c['text']}")
+        parts.append(f"[{i}] — from \"{c['source_name']}\"{_location(c)}:\n{c['text']}")
     return "\n\n---\n\n".join(parts)
 
 
@@ -38,6 +53,9 @@ def answer_stream(
 ) -> tuple[list[dict], Iterator[str]]:
     """Returns (retrieved_chunks, token_iterator)."""
     chunks = hybrid_search(notebook_id, question, k=TOP_K)
+    kinds = {s["id"]: s["kind"] for s in db.list_sources(notebook_id)}
+    for c in chunks:
+        c["kind"] = kinds.get(c["source_id"], "text")
 
     messages = [{"role": "system", "content": load_prompt("grounded_answer")}]
     for turn in (history or [])[-CONTEXT_HISTORY_TURNS * 2:]:

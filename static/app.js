@@ -92,8 +92,19 @@ async function loadNotebooks() {
 async function openNotebook() {
   state.history = [];
   $("#messages").innerHTML = "";
-  await Promise.all([loadSources(), loadMessages(), loadAudioOverviews()]);
+  await Promise.all([loadSources(), loadMessages(), loadAudioOverviews(), loadArtifacts()]);
 }
+
+function fmtTime(seconds) {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
+           : `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+const KIND_ICONS = {
+  pdf: "📕", url: "🔗", docx: "📘", sheet: "📊", video: "🎬", audio: "🎵", text: "📄",
+};
 
 $("#nb-select").addEventListener("change", async (e) => {
   state.current = e.target.value;
@@ -153,7 +164,7 @@ async function loadSources() {
   for (const s of sources) {
     const li = document.createElement("li");
     if (s.status === "failed") li.classList.add("failed");
-    const icon = s.kind === "pdf" ? "📕" : s.kind === "url" ? "🔗" : s.kind === "docx" ? "📘" : "📄";
+    const icon = KIND_ICONS[s.kind] || "📄";
     const meta = s.status === "failed" ? "failed"
       : s.pages ? `${s.pages}p · ${s.chunk_count} chunks` : `${s.chunk_count} chunks`;
 
@@ -165,6 +176,16 @@ async function loadSources() {
     li.append(Object.assign(document.createElement("span"), { textContent: icon }));
     li.append(name);
     li.append(Object.assign(document.createElement("span"), { className: "src-meta", textContent: meta }));
+
+    if ((s.kind === "video" || s.kind === "audio") && s.status === "ready") {
+      const play = document.createElement("button");
+      play.className = "icon-btn retry";
+      play.title = "Play";
+      play.setAttribute("aria-label", `Play ${s.name}`);
+      play.textContent = "▶";
+      play.addEventListener("click", () => openMedia(s.id, s.name, s.kind, 0));
+      li.append(play);
+    }
 
     if (s.status === "failed") {
       const retry = document.createElement("button");
@@ -323,8 +344,20 @@ $("#chat-clear").addEventListener("click", async () => {
 });
 
 function showCitation(c) {
-  $("#modal-title").textContent = c.page ? `${c.source_name} — page ${c.page}` : c.source_name;
+  const isMedia = c.kind === "video" || c.kind === "audio";
+  $("#modal-title").textContent = isMedia && c.page != null
+    ? `${c.source_name} — at ${fmtTime(c.page)}`
+    : c.page ? `${c.source_name} — page ${c.page}` : c.source_name;
   $("#modal-body").textContent = c.text;
+  const play = $("#modal-play");
+  play.hidden = !isMedia;
+  if (isMedia) {
+    play.textContent = `▶ Play from ${fmtTime(c.page || 0)}`;
+    play.onclick = () => {
+      closeModal();
+      openMedia(c.source_id, c.source_name, c.kind, c.page || 0);
+    };
+  }
   $("#modal-backdrop").hidden = false;
   $("#modal-close").focus();
 }
@@ -333,8 +366,47 @@ $("#modal-close").addEventListener("click", closeModal);
 $("#modal-backdrop").addEventListener("click", (e) => {
   if (e.target.id === "modal-backdrop") closeModal();
 });
+
+// ---------- Media playback modal ----------
+function openMedia(sourceId, name, kind, seekSeconds) {
+  $("#media-title").textContent = name;
+  const body = $("#media-body");
+  body.innerHTML = "";
+  const el = document.createElement(kind === "video" ? "video" : "audio");
+  el.controls = true;
+  el.src = `/api/media/${sourceId}`;
+  el.setAttribute("aria-label", `${kind === "video" ? "Video" : "Audio"} player for ${name}`);
+  el.addEventListener("loadedmetadata", () => {
+    if (seekSeconds) el.currentTime = seekSeconds;
+    el.play().catch(() => {});
+  });
+  el.addEventListener("error", () => toast("Could not load media file"));
+  body.appendChild(el);
+  $("#media-backdrop").hidden = false;
+  $("#media-close").focus();
+}
+function closeMedia() {
+  const el = $("#media-body").firstChild;
+  if (el && el.pause) el.pause();
+  $("#media-body").innerHTML = "";
+  $("#media-backdrop").hidden = true;
+}
+$("#media-close").addEventListener("click", closeMedia);
+$("#media-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "media-backdrop") closeMedia();
+});
+
+function closeArtifact() { $("#artifact-backdrop").hidden = true; $("#artifact-body").innerHTML = ""; }
+$("#artifact-close").addEventListener("click", closeArtifact);
+$("#artifact-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "artifact-backdrop") closeArtifact();
+});
+
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !$("#modal-backdrop").hidden) closeModal();
+  if (e.key !== "Escape") return;
+  if (!$("#modal-backdrop").hidden) closeModal();
+  if (!$("#media-backdrop").hidden) closeMedia();
+  if (!$("#artifact-backdrop").hidden) closeArtifact();
 });
 
 $("#chat-form").addEventListener("submit", async (e) => {
@@ -440,7 +512,7 @@ function renderAudioList(rows) {
     li.append(title, meta, player, dl);
     ul.appendChild(li);
   }
-  $("#audio-empty").style.display = rows.length ? "none" : "block";
+  updateStudioEmpty();
 }
 
 async function loadAudioOverviews() {
@@ -467,6 +539,328 @@ $("#audio-overview-btn").addEventListener("click", async () => {
     status.textContent = "Two-host podcast from your sources";
   }
 });
+
+// ---------- Studio: chart / infographic / spreadsheet artifacts ----------
+const SVGNS = "http://www.w3.org/2000/svg";
+const PALETTE = ["#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
+                 "#14b8a6", "#f43f5e", "#84cc16", "#6366f1", "#eab308", "#06b6d4"];
+const ART_ICONS = { chart: "📊", infographic: "🪧", spreadsheet: "📋" };
+
+function svgEl(tag, attrs = {}, parent = null) {
+  const el = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  if (parent) parent.appendChild(el);
+  return el;
+}
+
+function svgText(parent, x, y, str, attrs = {}) {
+  const t = svgEl("text", { x, y, fill: "#1f2430", "font-family": "sans-serif", ...attrs }, parent);
+  t.textContent = str;
+  return t;
+}
+
+function wrapText(str, maxChars) {
+  const words = String(str).split(/\s+/);
+  const lines = [];
+  let line = "";
+  for (const w of words) {
+    if ((line + " " + w).trim().length > maxChars && line) { lines.push(line); line = w; }
+    else line = (line + " " + w).trim();
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function renderChart(spec) {
+  const W = 640, H = 400, ml = 64, mr = 24, mt = 48, mb = 76;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, xmlns: SVGNS });
+  svgEl("rect", { x: 0, y: 0, width: W, height: H, fill: "#ffffff" }, svg);
+  svgText(svg, W / 2, 26, spec.title, { "text-anchor": "middle", "font-size": 17, "font-weight": 700 });
+
+  if (spec.type === "pie") {
+    const total = spec.values.reduce((a, b) => a + Math.max(0, b), 0) || 1;
+    const cx = 200, cy = 215, r = 130;
+    let angle = -Math.PI / 2;
+    spec.values.forEach((v, i) => {
+      const frac = Math.max(0, v) / total;
+      const a2 = angle + frac * 2 * Math.PI;
+      const large = frac > 0.5 ? 1 : 0;
+      const x1 = cx + r * Math.cos(angle), y1 = cy + r * Math.sin(angle);
+      const x2 = cx + r * Math.cos(a2), y2 = cy + r * Math.sin(a2);
+      const d = frac >= 0.999
+        ? `M ${cx - r} ${cy} A ${r} ${r} 0 1 1 ${cx + r} ${cy} A ${r} ${r} 0 1 1 ${cx - r} ${cy}`
+        : `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`;
+      svgEl("path", { d, fill: PALETTE[i % PALETTE.length], stroke: "#fff", "stroke-width": 1.5 }, svg);
+      angle = a2;
+    });
+    spec.labels.forEach((lab, i) => {
+      const y = 80 + i * 24;
+      svgEl("rect", { x: 390, y: y - 11, width: 13, height: 13, rx: 3,
+                      fill: PALETTE[i % PALETTE.length] }, svg);
+      svgText(svg, 410, y, `${lab} — ${spec.values[i]}`, { "font-size": 12.5 });
+    });
+    return svg;
+  }
+
+  // bar / line share axes
+  const plotW = W - ml - mr, plotH = H - mt - mb;
+  const vmin = Math.min(0, ...spec.values), vmax = Math.max(...spec.values, vmin + 1e-9);
+  const y = (v) => mt + plotH - ((v - vmin) / (vmax - vmin)) * plotH;
+  const n = spec.values.length;
+
+  for (let i = 0; i <= 5; i++) {
+    const v = vmin + (i / 5) * (vmax - vmin);
+    const yy = y(v);
+    svgEl("line", { x1: ml, y1: yy, x2: W - mr, y2: yy, stroke: "#e4e2dc" }, svg);
+    svgText(svg, ml - 7, yy + 4, Number(v.toPrecision(3)).toLocaleString(),
+            { "text-anchor": "end", "font-size": 10.5, fill: "#5f6774" });
+  }
+
+  const rotate = spec.labels.some((l) => l.length > 7);
+  spec.labels.forEach((lab, i) => {
+    const xc = ml + ((i + 0.5) / n) * plotW;
+    const t = svgText(svg, xc, H - mb + 18, lab, {
+      "text-anchor": rotate ? "end" : "middle", "font-size": 11, fill: "#5f6774" });
+    if (rotate) t.setAttribute("transform", `rotate(-30 ${xc} ${H - mb + 18})`);
+  });
+
+  if (spec.type === "bar") {
+    const bw = Math.min(60, (plotW / n) * 0.64);
+    spec.values.forEach((v, i) => {
+      const xc = ml + ((i + 0.5) / n) * plotW;
+      const yTop = Math.min(y(v), y(0)), h = Math.abs(y(v) - y(0));
+      svgEl("rect", { x: xc - bw / 2, y: yTop, width: bw, height: Math.max(h, 1),
+                      rx: 3, fill: PALETTE[0] }, svg);
+      svgText(svg, xc, yTop - 5, Number(v).toLocaleString(),
+              { "text-anchor": "middle", "font-size": 10.5, fill: "#1f2430" });
+    });
+  } else {
+    const pts = spec.values.map((v, i) => [ml + ((i + 0.5) / n) * plotW, y(v)]);
+    svgEl("polyline", { points: pts.map((p) => p.join(",")).join(" "),
+                        fill: "none", stroke: PALETTE[0], "stroke-width": 2.5 }, svg);
+    pts.forEach(([px, py], i) => {
+      svgEl("circle", { cx: px, cy: py, r: 4, fill: PALETTE[0] }, svg);
+      svgText(svg, px, py - 9, Number(spec.values[i]).toLocaleString(),
+              { "text-anchor": "middle", "font-size": 10.5, fill: "#1f2430" });
+    });
+  }
+
+  if (spec.y_label) {
+    svgText(svg, 16, mt + plotH / 2, spec.y_label,
+            { "font-size": 11.5, fill: "#5f6774", "text-anchor": "middle",
+              transform: `rotate(-90 16 ${mt + plotH / 2})` });
+  }
+  if (spec.x_label) {
+    svgText(svg, ml + plotW / 2, H - 8, spec.x_label,
+            { "font-size": 11.5, fill: "#5f6774", "text-anchor": "middle" });
+  }
+  return svg;
+}
+
+function renderInfographic(spec) {
+  const W = 640, pad = 28;
+  const svg = svgEl("svg", { xmlns: SVGNS });
+  const bg = svgEl("rect", { x: 0, y: 0, width: W, fill: "#ffffff" }, svg);
+  let yPos = 44;
+
+  for (const line of wrapText(spec.title, 44)) {
+    svgText(svg, pad, yPos, line, { "font-size": 24, "font-weight": 800 });
+    yPos += 30;
+  }
+  svgEl("rect", { x: pad, y: yPos - 18, width: 56, height: 5, rx: 2.5, fill: PALETTE[0] }, svg);
+  yPos += 6;
+  if (spec.subtitle) {
+    for (const line of wrapText(spec.subtitle, 78)) {
+      svgText(svg, pad, yPos, line, { "font-size": 13.5, fill: "#5f6774" });
+      yPos += 19;
+    }
+  }
+  yPos += 16;
+
+  const stats = spec.stats.slice(0, 4);
+  const cellW = (W - pad * 2) / stats.length;
+  let statBottom = yPos;
+  stats.forEach((s, i) => {
+    const x = pad + i * cellW + cellW / 2;
+    svgText(svg, x, yPos + 22, String(s.value),
+            { "font-size": 27, "font-weight": 800, fill: PALETTE[0], "text-anchor": "middle" });
+    let ly = yPos + 42;
+    for (const line of wrapText(s.label, Math.floor(cellW / 6.2)).slice(0, 3)) {
+      svgText(svg, x, ly, line, { "font-size": 11, fill: "#5f6774", "text-anchor": "middle" });
+      ly += 14;
+    }
+    statBottom = Math.max(statBottom, ly);
+  });
+  yPos = statBottom + 22;
+
+  for (const sec of spec.sections) {
+    svgText(svg, pad, yPos, sec.heading, { "font-size": 15, "font-weight": 700, fill: PALETTE[0] });
+    yPos += 21;
+    for (const point of sec.points) {
+      const lines = wrapText(point, 82);
+      lines.forEach((line, li) => {
+        svgText(svg, pad + 14, yPos, (li === 0 ? "" : "") + line, { "font-size": 12.5 });
+        if (li === 0) svgText(svg, pad, yPos, "•", { "font-size": 12.5, fill: PALETTE[0] });
+        yPos += 17;
+      });
+      yPos += 3;
+    }
+    yPos += 12;
+  }
+  if (spec.source_note) {
+    for (const line of wrapText(`Source: ${spec.source_note}`, 92)) {
+      svgText(svg, pad, yPos, line, { "font-size": 10.5, fill: "#98a3b1" });
+      yPos += 14;
+    }
+  }
+  const H = yPos + 16;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  bg.setAttribute("height", H);
+  return svg;
+}
+
+function downloadBlob(content, filename, type) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function slug(title) {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 50) || "artifact";
+}
+
+function showArtifact(a) {
+  $("#artifact-title").textContent = `${ART_ICONS[a.kind] || ""} ${a.title}`;
+  const body = $("#artifact-body");
+  const actions = $("#artifact-actions");
+  body.innerHTML = "";
+  actions.innerHTML = "";
+
+  if (a.kind === "chart" || a.kind === "infographic") {
+    const svg = a.kind === "chart" ? renderChart(a.spec) : renderInfographic(a.spec);
+    body.appendChild(svg);
+    const dl = document.createElement("button");
+    dl.type = "button";
+    dl.textContent = "⬇ SVG";
+    dl.setAttribute("aria-label", "Download as SVG");
+    dl.addEventListener("click", () => downloadBlob(
+      new XMLSerializer().serializeToString(svg), `${slug(a.title)}.svg`, "image/svg+xml"));
+    actions.appendChild(dl);
+  } else if (a.kind === "spreadsheet") {
+    const table = document.createElement("table");
+    const thead = table.createTHead().insertRow();
+    for (const c of a.spec.columns) {
+      const th = document.createElement("th");
+      th.textContent = c;
+      thead.appendChild(th);
+    }
+    const tbody = table.createTBody();
+    for (const r of a.spec.rows) {
+      const tr = tbody.insertRow();
+      for (const cell of r) tr.insertCell().textContent = cell ?? "";
+    }
+    body.appendChild(table);
+
+    const csvBtn = document.createElement("button");
+    csvBtn.type = "button";
+    csvBtn.textContent = "⬇ CSV";
+    csvBtn.setAttribute("aria-label", "Download as CSV");
+    csvBtn.addEventListener("click", () => {
+      const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const csv = [a.spec.columns, ...a.spec.rows].map((r) => r.map(esc).join(",")).join("\n");
+      downloadBlob(csv, `${slug(a.title)}.csv`, "text/csv");
+    });
+    actions.appendChild(csvBtn);
+    if (a.file_url) {
+      const x = document.createElement("a");
+      x.className = "audio-download";
+      x.href = a.file_url;
+      x.textContent = "⬇ XLSX";
+      x.setAttribute("aria-label", "Download as Excel file");
+      actions.appendChild(x);
+    }
+  }
+
+  if (a.spec.source_note) {
+    const note = document.createElement("div");
+    note.className = "source-note";
+    note.textContent = `Source: ${a.spec.source_note}`;
+    body.appendChild(note);
+  }
+  $("#artifact-backdrop").hidden = false;
+  $("#artifact-close").focus();
+}
+
+async function loadArtifacts() {
+  const rows = await api(`/api/notebooks/${state.current}/artifacts`);
+  const ul = $("#artifact-list");
+  ul.innerHTML = "";
+  for (const a of rows) {
+    const li = document.createElement("li");
+    li.append(Object.assign(document.createElement("span"),
+                            { textContent: ART_ICONS[a.kind] || "📦" }));
+    const title = document.createElement("button");
+    title.type = "button";
+    title.className = "art-title";
+    title.textContent = a.title;
+    title.title = `View ${a.kind}`;
+    title.addEventListener("click", () => showArtifact(a));
+    li.append(title);
+    const del = document.createElement("button");
+    del.className = "icon-btn";
+    del.title = "Delete artifact";
+    del.setAttribute("aria-label", `Delete ${a.kind} ${a.title}`);
+    del.textContent = "✕";
+    del.addEventListener("click", async () => {
+      if (!confirm(`Delete ${a.kind} "${a.title}"?`)) return;
+      del.disabled = true;
+      try {
+        await api(`/api/notebooks/${state.current}/artifacts/${a.id}`, { method: "DELETE" });
+      } catch (err) { toast(err.message); }
+      await loadArtifacts();
+    });
+    li.append(del);
+    ul.appendChild(li);
+  }
+  updateStudioEmpty();
+}
+
+function updateStudioEmpty() {
+  const empty = !$("#audio-list").children.length && !$("#artifact-list").children.length;
+  $("#studio-empty").style.display = empty ? "block" : "none";
+}
+
+const KIND_LABELS = { chart: "Chart", infographic: "Infographic", spreadsheet: "Spreadsheet" };
+for (const btn of document.querySelectorAll(".artifact-buttons button")) {
+  btn.addEventListener("click", async () => {
+    if (!state.current || btn.disabled) return;
+    const kind = btn.dataset.kind;
+    const all = document.querySelectorAll(".artifact-buttons button");
+    all.forEach((b) => (b.disabled = true));
+    btn.classList.add("busy");
+    const prog = $("#artifact-progress");
+    prog.hidden = false;
+    prog.textContent = `Generating ${KIND_LABELS[kind].toLowerCase()} from your sources…`;
+    try {
+      const artifact = await api(`/api/notebooks/${state.current}/artifacts`, {
+        method: "POST",
+        body: JSON.stringify({ kind }),
+      });
+      toast(`${KIND_LABELS[kind]} "${artifact.title}" is ready`, "success");
+      await loadArtifacts();
+      showArtifact(artifact);
+    } catch (err) {
+      toast(`${KIND_LABELS[kind]} failed: ${err.message}`);
+    } finally {
+      all.forEach((b) => (b.disabled = false));
+      btn.classList.remove("busy");
+      prog.hidden = true;
+    }
+  });
+}
 
 // ---------- Init ----------
 (async () => {

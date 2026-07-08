@@ -39,6 +39,15 @@ CREATE TABLE IF NOT EXISTS audio_overviews (
     line_count INTEGER NOT NULL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS artifacts (
+    id TEXT PRIMARY KEY,
+    notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,          -- chart | infographic | spreadsheet
+    title TEXT NOT NULL,
+    spec TEXT NOT NULL,          -- JSON payload rendered by the client
+    file_path TEXT,              -- generated file (e.g. .xlsx), if any
+    created_at TEXT NOT NULL
+);
 """
 
 # Columns added after the original release; applied idempotently at startup.
@@ -239,6 +248,48 @@ def list_audio_overviews(notebook_id: str) -> list[dict]:
             (notebook_id,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------- Studio artifacts ----------
+
+def create_artifact(notebook_id: str, kind: str, title: str, spec: str,
+                    file_path: str | None = None) -> dict:
+    row = {
+        "id": uuid.uuid4().hex[:12],
+        "notebook_id": notebook_id,
+        "kind": kind,
+        "title": title,
+        "spec": spec,
+        "file_path": file_path,
+        "created_at": _now(),
+    }
+    with conn() as c:
+        c.execute(
+            "INSERT INTO artifacts VALUES (:id, :notebook_id, :kind, :title,"
+            " :spec, :file_path, :created_at)",
+            row,
+        )
+    return row
+
+
+def get_artifact(artifact_id: str) -> dict | None:
+    with conn() as c:
+        row = c.execute("SELECT * FROM artifacts WHERE id = ?", (artifact_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_artifacts(notebook_id: str) -> list[dict]:
+    with conn() as c:
+        rows = c.execute(
+            "SELECT * FROM artifacts WHERE notebook_id = ? ORDER BY created_at DESC",
+            (notebook_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_artifact(artifact_id: str):
+    with conn() as c:
+        c.execute("DELETE FROM artifacts WHERE id = ?", (artifact_id,))
 
 
 def counts() -> dict:

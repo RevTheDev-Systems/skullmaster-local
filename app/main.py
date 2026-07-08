@@ -17,14 +17,16 @@ from . import db, ingest, store
 from .chunker import chunk_segments
 from .config import (
     APP_VERSION,
+    ARTIFACTS_DIR,
     AUDIO_DIR,
     MAX_UPLOAD_BYTES,
+    MEDIA_MAX_UPLOAD_BYTES,
     PRODUCT_NAME,
     PROJECT_ROOT,
     SQLITE_PATH,
     UPLOADS_DIR,
 )
-from .providers import get_llm, get_tts
+from .providers import get_llm, get_stt, get_tts
 from .rag import answer_stream, strip_invalid_citations
 
 logging.basicConfig(level=logging.INFO)
@@ -44,9 +46,28 @@ app = FastAPI(title=PRODUCT_NAME, version=APP_VERSION, lifespan=lifespan)
 
 STATIC_DIR = PROJECT_ROOT / "static"
 
-# Notebooks with an audio-overview job in flight (guards duplicate clicks/tabs).
-_audio_jobs: set[str] = set()
-_audio_jobs_lock = threading.Lock()
+# Long-running Studio jobs in flight, keyed (notebook_id, job kind) — guards
+# duplicate clicks and parallel tabs.
+_jobs: set[tuple[str, str]] = set()
+_jobs_lock = threading.Lock()
+
+
+class _job:
+    """Context manager: claim a (notebook, kind) job slot or raise 409."""
+
+    def __init__(self, notebook_id: str, kind: str):
+        self.key = (notebook_id, kind)
+
+    def __enter__(self):
+        with _jobs_lock:
+            if self.key in _jobs:
+                raise HTTPException(
+                    409, f"A {self.key[1]} is already being generated for this notebook")
+            _jobs.add(self.key)
+
+    def __exit__(self, *exc):
+        with _jobs_lock:
+            _jobs.discard(self.key)
 
 
 @app.exception_handler(Exception)
@@ -73,6 +94,7 @@ class ChatIn(BaseModel):
 def _health() -> dict:
     llm = get_llm().status()
     tts = get_tts().status()
+    stt = get_stt().status()
     vector = store.status()
     try:
         counts = db.counts()
@@ -89,6 +111,7 @@ def _health() -> dict:
         "version": APP_VERSION,
         "llm": llm,
         "tts": tts,
+        "stt": stt,
         "vector_store": vector,
         "database": database,
     }
@@ -134,8 +157,10 @@ def notebooks_delete(notebook_id: str):
         _delete_source_file(src)
     for overview in db.list_audio_overviews(notebook_id):
         (AUDIO_DIR / Path(overview["filename"]).name).unlink(missing_ok=True)
+    for artifact in db.list_artifacts(notebook_id):
+        _delete_artifact_file(artifact)
     store.delete_notebook_chunks(notebook_id)
-    db.delete_notebook(notebook_id)  # cascades sources, messages, audio rows
+    db.delete_notebook(notebook_id)  # cascades sources, messages, audio, artifacts
     return {"ok": True}
 
 
@@ -189,16 +214,19 @@ def sources_upload(notebook_id: str, file: UploadFile):
         raise HTTPException(400, "Missing filename")
 
     safe_name = _sanitize_filename(file.filename)
+    suffix = Path(safe_name).suffix.lower()
+    is_media = suffix in ingest.VIDEO_SUFFIXES | ingest.AUDIO_SUFFIXES
+    max_bytes = MEDIA_MAX_UPLOAD_BYTES if is_media else MAX_UPLOAD_BYTES
     dest = UPLOADS_DIR / f"{uuid.uuid4().hex[:8]}_{safe_name}"
     size = 0
     with dest.open("wb") as f:
         while chunk := file.file.read(1024 * 1024):
             size += len(chunk)
-            if size > MAX_UPLOAD_BYTES:
+            if size > max_bytes:
                 f.close()
                 dest.unlink(missing_ok=True)
                 raise HTTPException(
-                    413, f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit")
+                    413, f"File exceeds the {max_bytes // (1024 * 1024)}MB limit")
             f.write(chunk)
 
     try:
@@ -321,6 +349,7 @@ def chat(notebook_id: str, body: ChatIn):
                 "n": i + 1,
                 "source_id": c["source_id"],
                 "source_name": c["source_name"],
+                "kind": c.get("kind", "text"),
                 "page": c["page"],
                 "text": c["text"],
             }
@@ -367,18 +396,12 @@ def audio_overviews_list(notebook_id: str):
 def audio_overview(notebook_id: str):
     if not db.get_notebook(notebook_id):
         raise HTTPException(404, "Notebook not found")
-    with _audio_jobs_lock:
-        if notebook_id in _audio_jobs:
-            raise HTTPException(409, "An audio overview is already being generated for this notebook")
-        _audio_jobs.add(notebook_id)
     from . import studio
-    try:
-        meta = studio.generate_audio_overview(notebook_id)
-    except studio.StudioError as e:
-        raise HTTPException(422, str(e))
-    finally:
-        with _audio_jobs_lock:
-            _audio_jobs.discard(notebook_id)
+    with _job(notebook_id, "audio overview"):
+        try:
+            meta = studio.generate_audio_overview(notebook_id)
+        except studio.StudioError as e:
+            raise HTTPException(422, str(e))
     db.create_audio_overview(notebook_id, meta["filename"], meta["title"],
                              meta["duration_seconds"], meta["lines"])
     meta["url"] = f"/api/audio/{meta['filename']}"
@@ -392,6 +415,104 @@ def get_audio(filename: str):
     if not path.exists():
         raise HTTPException(404, "Audio not found")
     return FileResponse(path, media_type="audio/wav", filename=safe)
+
+
+# ---------- Studio: chart / infographic / spreadsheet artifacts ----------
+
+class ArtifactIn(BaseModel):
+    kind: str
+
+
+def _delete_artifact_file(artifact: dict):
+    if artifact.get("file_path"):
+        p = Path(artifact["file_path"])
+        if p.parent == ARTIFACTS_DIR:
+            p.unlink(missing_ok=True)
+
+
+def _artifact_out(row: dict) -> dict:
+    out = {**row, "spec": json.loads(row["spec"])}
+    if row.get("file_path"):
+        out["file_url"] = f"/api/artifacts/{row['id']}/file"
+    out.pop("file_path", None)
+    return out
+
+
+@app.get("/api/notebooks/{notebook_id}/artifacts")
+def artifacts_list(notebook_id: str):
+    if not db.get_notebook(notebook_id):
+        raise HTTPException(404, "Notebook not found")
+    return [_artifact_out(r) for r in db.list_artifacts(notebook_id)]
+
+
+@app.post("/api/notebooks/{notebook_id}/artifacts")
+def artifacts_create(notebook_id: str, body: ArtifactIn):
+    if not db.get_notebook(notebook_id):
+        raise HTTPException(404, "Notebook not found")
+    from . import studio
+    if body.kind not in studio.ARTIFACT_PROMPTS:
+        raise HTTPException(400, f"Unknown artifact kind: {body.kind}")
+    with _job(notebook_id, body.kind):
+        try:
+            spec = studio.generate_artifact_spec(notebook_id, body.kind)
+        except studio.StudioError as e:
+            raise HTTPException(422, str(e))
+    file_path = None
+    if body.kind == "spreadsheet":
+        file_path = ARTIFACTS_DIR / f"{notebook_id}_{uuid.uuid4().hex[:8]}.xlsx"
+        studio.write_xlsx(spec, file_path)
+    row = db.create_artifact(notebook_id, body.kind, spec["title"],
+                             json.dumps(spec),
+                             str(file_path) if file_path else None)
+    return _artifact_out(row)
+
+
+@app.delete("/api/notebooks/{notebook_id}/artifacts/{artifact_id}")
+def artifacts_delete(notebook_id: str, artifact_id: str):
+    artifact = db.get_artifact(artifact_id)
+    if not artifact or artifact["notebook_id"] != notebook_id:
+        raise HTTPException(404, "Artifact not found")
+    _delete_artifact_file(artifact)
+    db.delete_artifact(artifact_id)
+    return {"ok": True}
+
+
+@app.get("/api/artifacts/{artifact_id}/file")
+def artifact_file(artifact_id: str):
+    artifact = db.get_artifact(artifact_id)
+    if not artifact or not artifact.get("file_path"):
+        raise HTTPException(404, "Artifact file not found")
+    path = Path(artifact["file_path"])
+    if path.parent != ARTIFACTS_DIR or not path.exists():
+        raise HTTPException(404, "Artifact file not found")
+    safe_title = re.sub(r"[^\w\- ]", "_", artifact["title"])[:60] or "spreadsheet"
+    return FileResponse(
+        path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=f"{safe_title}.xlsx",
+    )
+
+
+# ---------- Media playback for video/audio sources ----------
+
+MEDIA_TYPES = {
+    ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
+    ".webm": "video/webm", ".mkv": "video/x-matroska", ".avi": "video/x-msvideo",
+    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4",
+    ".flac": "audio/flac", ".ogg": "audio/ogg", ".aac": "audio/aac",
+}
+
+
+@app.get("/api/media/{source_id}")
+def get_media(source_id: str):
+    src = db.get_source(source_id)
+    if not src or not src.get("stored_path"):
+        raise HTTPException(404, "Media not found")
+    path = Path(src["stored_path"])
+    if path.parent != UPLOADS_DIR or not path.exists():
+        raise HTTPException(404, "Media not found")
+    media_type = MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
+    return FileResponse(path, media_type=media_type, filename=src["name"])
 
 
 # ---------- Static UI ----------
