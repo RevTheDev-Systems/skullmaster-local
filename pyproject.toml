@@ -1,7 +1,7 @@
 [project]
-name = "notebooklm-local"
-version = "0.1.0"
-description = "Local NotebookLM clone: source-grounded RAG chat with citations, powered by Ollama"
+name = "skullmaster-local"
+version = "1.0.0"
+description = "SkullMaster Local: fully local NotebookLM-style app — source-grounded cited chat and audio overviews, powered by Ollama"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",

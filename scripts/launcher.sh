@@ -1,5 +1,5 @@
 #!/bin/zsh
-# NotebookLM Local launcher — starts the server if needed, then opens the UI.
+# SkullMaster Local launcher — starts the server if needed, then opens the UI.
 set -u
 
 PROJECT_DIR="$HOME/notebooklm-local"
