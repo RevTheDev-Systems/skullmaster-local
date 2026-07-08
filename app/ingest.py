@@ -1,9 +1,19 @@
-"""Parse uploaded files and URLs into (page_number, text) segments."""
+"""Parse uploaded files and URLs into (page_number, text) segments.
+
+URL policy (offline-first): a URL is fetched exactly once, when the user
+explicitly submits it for ingestion. Only http/https schemes are allowed
+(no file:// or other local reads), with a hard timeout and size cap. The
+extracted text is stored locally; nothing is re-fetched at runtime.
+"""
+import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 import fitz  # PyMuPDF
 import trafilatura
 from docx import Document as DocxDocument
+
+from .config import URL_FETCH_TIMEOUT, URL_MAX_BYTES
 
 TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".rst", ".csv", ".json", ".html", ".htm"}
 
@@ -54,11 +64,28 @@ def parse_text_file(path: Path) -> list[tuple[int | None, str]]:
     return [(None, text)]
 
 
+def _fetch_url(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise IngestError("Only http:// and https:// URLs can be ingested")
+    if not parsed.netloc:
+        raise IngestError(f"Not a valid URL: {url}")
+    req = urllib.request.Request(url, headers={"User-Agent": "SkullMasterLocal/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=URL_FETCH_TIMEOUT) as resp:
+            body = resp.read(URL_MAX_BYTES + 1)
+    except IngestError:
+        raise
+    except Exception as e:
+        raise IngestError(f"Could not fetch URL: {e}") from e
+    if len(body) > URL_MAX_BYTES:
+        raise IngestError(f"Page exceeds the {URL_MAX_BYTES // (1024 * 1024)}MB fetch limit")
+    return body.decode("utf-8", errors="replace")
+
+
 def parse_url(url: str) -> tuple[str, list[tuple[int | None, str]]]:
     """Returns (title, segments)."""
-    downloaded = trafilatura.fetch_url(url)
-    if not downloaded:
-        raise IngestError(f"Could not fetch URL: {url}")
+    downloaded = _fetch_url(url)
     text = trafilatura.extract(downloaded, include_comments=False)
     if not text or not text.strip():
         raise IngestError(f"No readable article content extracted from: {url}")

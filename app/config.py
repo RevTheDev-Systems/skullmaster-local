@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
+PRODUCT_NAME = "SkullMaster Local"
+APP_VERSION = "1.0.0"
+
 # ---- Paths ----
 DATA_DIR = Path(os.environ.get("NLM_DATA_DIR", PROJECT_ROOT / "data"))
 UPLOADS_DIR = DATA_DIR / "uploads"
@@ -40,6 +43,11 @@ CONTEXT_HISTORY_TURNS = 4 # prior chat turns included for conversational context
 
 # ---- Podcast ----
 PODCAST_CONTEXT_CHARS = 24_000  # max source characters fed to the script writer
+
+# ---- Ingestion safety limits ----
+MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "50")) * 1024 * 1024
+URL_FETCH_TIMEOUT = 20          # seconds
+URL_MAX_BYTES = 10 * 1024 * 1024
 
 
 def load_prompt(name: str) -> str:

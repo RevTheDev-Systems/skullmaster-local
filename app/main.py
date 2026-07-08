@@ -1,37 +1,58 @@
 """FastAPI app: notebooks, sources, grounded chat (SSE), audio overview, static UI."""
+import hashlib
 import json
 import logging
-import shutil
+import re
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import db, ingest, store
 from .chunker import chunk_segments
-from .config import AUDIO_DIR, PROJECT_ROOT, UPLOADS_DIR
+from .config import (
+    APP_VERSION,
+    AUDIO_DIR,
+    MAX_UPLOAD_BYTES,
+    PRODUCT_NAME,
+    PROJECT_ROOT,
+    SQLITE_PATH,
+    UPLOADS_DIR,
+)
 from .providers import get_llm, get_tts
 from .rag import answer_stream, strip_invalid_citations
 
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("nlm")
+log = logging.getLogger("skullmaster")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    log.info("%s v%s starting", PRODUCT_NAME, APP_VERSION)
     result = get_llm().ensure_models()
     log.info("Model check: %s", result)
     yield
 
 
-app = FastAPI(title="NotebookLM Local", lifespan=lifespan)
+app = FastAPI(title=PRODUCT_NAME, version=APP_VERSION, lifespan=lifespan)
 
 STATIC_DIR = PROJECT_ROOT / "static"
+
+# Notebooks with an audio-overview job in flight (guards duplicate clicks/tabs).
+_audio_jobs: set[str] = set()
+_audio_jobs_lock = threading.Lock()
+
+
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    log.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 class NotebookIn(BaseModel):
@@ -47,14 +68,36 @@ class ChatIn(BaseModel):
     history: list[dict] = []
 
 
-@app.get("/api/health")
-def health():
+# ---------- Health ----------
+
+def _health() -> dict:
     llm = get_llm().status()
     tts = get_tts().status()
     vector = store.status()
-    ok = llm.get("reachable", False) and llm.get("chat_model_ready", False) \
-        and llm.get("embed_model_ready", False)
-    return {"ok": ok, "llm": llm, "tts": tts, "vector_store": vector}
+    try:
+        counts = db.counts()
+        database = {"ready": True, "path": str(SQLITE_PATH), **counts}
+    except Exception as e:
+        database = {"ready": False, "path": str(SQLITE_PATH), "error": str(e)}
+    ok = (llm.get("reachable", False) and llm.get("chat_model_ready", False)
+          and llm.get("embed_model_ready", False) and vector.get("ready", False)
+          and database["ready"])
+    return {
+        "status": "ok" if ok else "degraded",
+        "ok": ok,
+        "product": PRODUCT_NAME,
+        "version": APP_VERSION,
+        "llm": llm,
+        "tts": tts,
+        "vector_store": vector,
+        "database": database,
+    }
+
+
+@app.get("/health")
+@app.get("/api/health")
+def health():
+    return _health()
 
 
 # ---------- Notebooks ----------
@@ -72,16 +115,64 @@ def notebooks_create(body: NotebookIn):
     return db.create_notebook(name)
 
 
+@app.patch("/api/notebooks/{notebook_id}")
+def notebooks_rename(notebook_id: str, body: NotebookIn):
+    if not db.get_notebook(notebook_id):
+        raise HTTPException(404, "Notebook not found")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Notebook name is required")
+    db.rename_notebook(notebook_id, name)
+    return {**db.get_notebook(notebook_id)}
+
+
 @app.delete("/api/notebooks/{notebook_id}")
 def notebooks_delete(notebook_id: str):
     if not db.get_notebook(notebook_id):
         raise HTTPException(404, "Notebook not found")
+    for src in db.list_sources(notebook_id):
+        _delete_source_file(src)
+    for overview in db.list_audio_overviews(notebook_id):
+        (AUDIO_DIR / Path(overview["filename"]).name).unlink(missing_ok=True)
     store.delete_notebook_chunks(notebook_id)
-    db.delete_notebook(notebook_id)
+    db.delete_notebook(notebook_id)  # cascades sources, messages, audio rows
     return {"ok": True}
 
 
 # ---------- Sources ----------
+
+def _sanitize_filename(name: str) -> str:
+    clean = re.sub(r"[^\w.\- ]", "_", Path(name).name).strip(". ")
+    return clean or "upload"
+
+
+def _content_hash(chunks: list[dict]) -> str:
+    h = hashlib.sha256()
+    for c in chunks:
+        h.update(c["text"].encode())
+        h.update(b"\x00")
+    return h.hexdigest()
+
+
+def _delete_source_file(src: dict):
+    if src.get("stored_path"):
+        p = Path(src["stored_path"])
+        # only ever delete files inside our uploads directory
+        if p.parent == UPLOADS_DIR:
+            p.unlink(missing_ok=True)
+
+
+def _index_chunks(notebook_id: str, source_id: str, source_name: str,
+                  chunks: list[dict]):
+    """Embed + store chunks; raises HTTPException(503) on provider failure."""
+    try:
+        store.add_chunks(notebook_id, source_id, source_name, chunks)
+    except Exception as e:
+        log.exception("Indexing failed for source %s", source_id)
+        db.update_source(source_id, status="failed",
+                         error=f"Embedding/indexing failed: {e}")
+        raise HTTPException(503, f"Embedding failed (is the embedding model available?): {e}")
+
 
 @app.get("/api/notebooks/{notebook_id}/sources")
 def sources_list(notebook_id: str):
@@ -97,9 +188,18 @@ def sources_upload(notebook_id: str, file: UploadFile):
     if not file.filename:
         raise HTTPException(400, "Missing filename")
 
-    dest = UPLOADS_DIR / f"{uuid.uuid4().hex[:8]}_{Path(file.filename).name}"
+    safe_name = _sanitize_filename(file.filename)
+    dest = UPLOADS_DIR / f"{uuid.uuid4().hex[:8]}_{safe_name}"
+    size = 0
     with dest.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+        while chunk := file.file.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_UPLOAD_BYTES:
+                f.close()
+                dest.unlink(missing_ok=True)
+                raise HTTPException(
+                    413, f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit")
+            f.write(chunk)
 
     try:
         kind, pages, segments = ingest.parse_file(dest)
@@ -108,35 +208,104 @@ def sources_upload(notebook_id: str, file: UploadFile):
         raise HTTPException(422, str(e))
 
     chunks = chunk_segments(segments)
-    src = db.create_source(notebook_id, Path(file.filename).name, kind,
-                           file.filename, pages, len(chunks))
-    store.add_chunks(notebook_id, src["id"], src["name"], chunks)
-    return src
+    content_hash = _content_hash(chunks)
+    dup = db.find_source_by_hash(notebook_id, content_hash)
+    if dup:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(409, f'Already in this notebook as "{dup["name"]}"')
+
+    src = db.create_source(notebook_id, safe_name, kind, safe_name, pages,
+                           len(chunks), content_hash=content_hash,
+                           stored_path=str(dest))
+    _index_chunks(notebook_id, src["id"], src["name"], chunks)
+    return db.get_source(src["id"])
 
 
 @app.post("/api/notebooks/{notebook_id}/sources/url")
 def sources_add_url(notebook_id: str, body: UrlIn):
     if not db.get_notebook(notebook_id):
         raise HTTPException(404, "Notebook not found")
+    url = body.url.strip()
     try:
-        title, segments = ingest.parse_url(body.url.strip())
+        title, segments = ingest.parse_url(url)
     except ingest.IngestError as e:
         raise HTTPException(422, str(e))
 
     chunks = chunk_segments(segments)
-    src = db.create_source(notebook_id, title, "url", body.url.strip(), None, len(chunks))
-    store.add_chunks(notebook_id, src["id"], src["name"], chunks)
-    return src
+    content_hash = _content_hash(chunks)
+    dup = db.find_source_by_hash(notebook_id, content_hash)
+    if dup:
+        raise HTTPException(409, f'Already in this notebook as "{dup["name"]}"')
+
+    src = db.create_source(notebook_id, title, "url", url, None, len(chunks),
+                           content_hash=content_hash)
+    _index_chunks(notebook_id, src["id"], src["name"], chunks)
+    return db.get_source(src["id"])
+
+
+@app.post("/api/notebooks/{notebook_id}/sources/{source_id}/retry")
+def sources_retry(notebook_id: str, source_id: str):
+    """Re-index a source that failed at the embedding/indexing step."""
+    src = db.get_source(source_id)
+    if not src or src["notebook_id"] != notebook_id:
+        raise HTTPException(404, "Source not found")
+    if src["status"] != "failed":
+        raise HTTPException(400, "Source is not in a failed state")
+
+    try:
+        if src["kind"] == "url":
+            _, segments = ingest.parse_url(src["origin"])
+        else:
+            if not src.get("stored_path") or not Path(src["stored_path"]).exists():
+                raise ingest.IngestError("Original file is no longer available")
+            _, _, segments = ingest.parse_file(Path(src["stored_path"]))
+    except ingest.IngestError as e:
+        db.update_source(source_id, error=str(e))
+        raise HTTPException(422, str(e))
+
+    chunks = chunk_segments(segments)
+    store.delete_source_chunks(source_id)  # clear any partial index
+    db.update_source(source_id, chunk_count=len(chunks),
+                     content_hash=_content_hash(chunks))
+    _index_chunks(notebook_id, source_id, src["name"], chunks)
+    db.update_source(source_id, status="ready", error=None)
+    return db.get_source(source_id)
 
 
 @app.delete("/api/notebooks/{notebook_id}/sources/{source_id}")
 def sources_delete(notebook_id: str, source_id: str):
+    src = db.get_source(source_id)
+    if not src or src["notebook_id"] != notebook_id:
+        raise HTTPException(404, "Source not found")
     store.delete_source_chunks(source_id)
+    _delete_source_file(src)
     db.delete_source(source_id)
     return {"ok": True}
 
 
 # ---------- Chat ----------
+
+@app.get("/api/notebooks/{notebook_id}/messages")
+def messages_list(notebook_id: str):
+    if not db.get_notebook(notebook_id):
+        raise HTTPException(404, "Notebook not found")
+    out = []
+    for m in db.list_messages(notebook_id):
+        out.append({
+            "role": m["role"],
+            "content": m["content"],
+            "citations": json.loads(m["citations"]) if m["citations"] else [],
+        })
+    return out
+
+
+@app.delete("/api/notebooks/{notebook_id}/messages")
+def messages_clear(notebook_id: str):
+    if not db.get_notebook(notebook_id):
+        raise HTTPException(404, "Notebook not found")
+    db.clear_messages(notebook_id)
+    return {"ok": True}
+
 
 @app.post("/api/notebooks/{notebook_id}/chat")
 def chat(notebook_id: str, body: ChatIn):
@@ -161,28 +330,57 @@ def chat(notebook_id: str, body: ChatIn):
 
         # 2) stream tokens, accumulating for final citation validation
         full = ""
-        for tok in tokens:
-            full += tok
-            yield f"event: token\ndata: {json.dumps(tok)}\n\n"
+        try:
+            for tok in tokens:
+                full += tok
+                yield f"event: token\ndata: {json.dumps(tok)}\n\n"
+        except Exception as e:
+            log.exception("Chat stream failed")
+            yield f"event: error\ndata: {json.dumps(f'Model error: {e}')}\n\n"
+            return
 
         # 3) send the validated final text (invalid citation markers removed)
         cleaned = strip_invalid_citations(full, len(chunks))
         yield f"event: done\ndata: {json.dumps(cleaned)}\n\n"
+
+        # 4) persist the exchange so chat survives refresh/restart
+        db.add_message(notebook_id, "user", body.question)
+        db.add_message(notebook_id, "assistant", cleaned,
+                       citations=json.dumps(sources_payload))
 
     return StreamingResponse(sse(), media_type="text/event-stream")
 
 
 # ---------- Studio: Audio Overview ----------
 
+@app.get("/api/notebooks/{notebook_id}/audio-overviews")
+def audio_overviews_list(notebook_id: str):
+    if not db.get_notebook(notebook_id):
+        raise HTTPException(404, "Notebook not found")
+    rows = db.list_audio_overviews(notebook_id)
+    for r in rows:
+        r["url"] = f"/api/audio/{r['filename']}"
+    return rows
+
+
 @app.post("/api/notebooks/{notebook_id}/audio-overview")
 def audio_overview(notebook_id: str):
     if not db.get_notebook(notebook_id):
         raise HTTPException(404, "Notebook not found")
+    with _audio_jobs_lock:
+        if notebook_id in _audio_jobs:
+            raise HTTPException(409, "An audio overview is already being generated for this notebook")
+        _audio_jobs.add(notebook_id)
     from . import studio
     try:
         meta = studio.generate_audio_overview(notebook_id)
     except studio.StudioError as e:
         raise HTTPException(422, str(e))
+    finally:
+        with _audio_jobs_lock:
+            _audio_jobs.discard(notebook_id)
+    db.create_audio_overview(notebook_id, meta["filename"], meta["title"],
+                             meta["duration_seconds"], meta["lines"])
     meta["url"] = f"/api/audio/{meta['filename']}"
     return meta
 
