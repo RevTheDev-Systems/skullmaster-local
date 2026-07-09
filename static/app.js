@@ -1,4 +1,4 @@
-// SkullMaster Local — frontend
+// SkullMaster iQ — frontend
 const $ = (sel) => document.querySelector(sel);
 
 const state = {

@@ -1,4 +1,4 @@
-# 💀 SkullMaster Local
+# 💀 SkullMaster iQ
 
 A fully local, offline NotebookLM-style app: source-grounded chat with inline
 citations and podcast-style Audio Overviews — running entirely on your machine

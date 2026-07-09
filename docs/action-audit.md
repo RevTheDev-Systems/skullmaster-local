@@ -1,4 +1,4 @@
-# SkullMaster Local — Action & Button Audit
+# SkullMaster iQ — Action & Button Audit
 
 Every interactive control in the application, audited 2026-07-08 against the
 running app (real Ollama models, real browser). "Tested" means the actual

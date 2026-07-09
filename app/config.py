@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
-PRODUCT_NAME = "SkullMaster Local"
+PRODUCT_NAME = "SkullMaster iQ"
 APP_VERSION = "1.0.0"
 
 # ---- Paths ----
