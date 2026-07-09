@@ -6,11 +6,13 @@ via [Ollama](https://ollama.com). No cloud APIs, no telemetry, no tracking.
 
 ## Features
 
-- **Notebooks & sources** — upload PDF, DOCX, TXT/MD, or add URLs; multiple sources per notebook
+- **Notebooks & sources** — upload PDF, DOCX, TXT/MD, XLSX, video, or audio files, or add URLs; multiple sources per notebook
+- **Video & audio sources** — uploads are transcribed locally with Whisper, playable in-app, and fully searchable in chat; media citations carry timestamps and a "Play from" button that seeks the player to the cited moment
 - **Closed-world RAG chat** — answers come ONLY from your sources; off-corpus questions are declined instead of hallucinated
-- **Inline citations** — every claim carries a clickable `[n]` chip that opens the exact source passage (with page numbers for PDFs)
+- **Inline citations** — every claim carries a clickable `[n]` chip that opens the exact source passage (with page numbers for PDFs, timestamps for media)
 - **Audio Overview** — a two-host podcast conversation about your sources, synthesized with a local TTS model, playable and downloadable in the UI
-- **Persistent** — notebooks, sources, chat history, and audio overviews survive refreshes and restarts
+- **Charts, infographics & spreadsheets** — Studio generates grounded artifacts from your sources: bar/line/pie charts and infographics (downloadable as SVG) and extracted data tables (downloadable as XLSX/CSV); numbers are validated to come from the sources, and the model refuses when the notebook has no usable data
+- **Persistent** — notebooks, sources, chat history, audio overviews, and artifacts survive refreshes and restarts
 - **Bright, accessible UI** — light-first design with an optional dark theme toggle
 
 ## Quick start
@@ -38,8 +40,10 @@ All model selection lives in `.env` — zero code edits to swap:
 | `EMBED_MODEL` | Chunk/query embeddings | `nomic-embed-text`, `qwen3-embedding`, `bge-m3` |
 | `TTS_MODEL` | Audio Overview backend | `kokoro` (Kokoro-82M, portable), `say` (macOS built-in) |
 | `TTS_VOICE_A/B` | The two podcast hosts | kokoro: `af_heart`/`am_michael`; say: `Samantha`/`Daniel` |
+| `STT_MODEL` | Video/audio transcription | `whisper-tiny` … `whisper-large-v3` (faster-whisper; default `whisper-base`) |
 | `OLLAMA_BASE_URL` | LLM backend endpoint | `http://localhost:11434` |
 | `LLM_PROVIDER` | Backend implementation | `ollama` (an OpenAI-compatible provider can be added in `app/providers/`) |
+| `MAX_UPLOAD_MB` / `MEDIA_MAX_UPLOAD_MB` | Upload caps | documents 50MB / media 1GB by default |
 
 **Note:** if you change `EMBED_MODEL`, re-ingest your sources — embeddings from
 different models are not comparable.
@@ -48,6 +52,12 @@ different models are not comparable.
 assembled per-line — each script line is synthesized with that host's voice and
 the clips are joined with natural pauses into one WAV. Both backends sit behind
 the same `TTSProvider` interface.
+
+**STT strategy:** video/audio sources are transcribed with faster-whisper
+(CTranslate2, CPU int8) behind an `STTProvider` interface. Whisper weights
+download once into `models/whisper/` on the first transcription. Bigger sizes
+transcribe more accurately but slower; `whisper-base` is a good default for
+clear speech.
 
 ## Tests
 
@@ -75,11 +85,12 @@ Everything is stored under `data/` (override with `NLM_DATA_DIR`):
 
 | Path | Contents |
 |---|---|
-| `data/notebooks.db` | SQLite: notebooks, sources, chat messages, audio metadata |
+| `data/notebooks.db` | SQLite: notebooks, sources, chat messages, audio + artifact metadata |
 | `data/lancedb/` | Vector index (chunk text + embeddings) |
-| `data/uploads/` | Original uploaded files |
+| `data/uploads/` | Original uploaded files (including video/audio, served for playback) |
 | `data/audio/` | Generated Audio Overview WAVs |
-| `models/` | Local TTS weights (Kokoro) |
+| `data/artifacts/` | Generated spreadsheet .xlsx files |
+| `models/` | Local TTS weights (Kokoro) and Whisper STT weights |
 
 - **Back up:** copy the `data/` directory (it is fully portable).
 - **Reset:** stop the server and delete `data/` — it is recreated empty on next start.
@@ -95,8 +106,9 @@ exceptions:
    submit it. The extracted text is stored locally and never re-fetched. Only
    `http`/`https` schemes are allowed (no `file://` or local reads), with a 20s
    timeout and a 10MB cap. There is no web search, crawling, or background fetching.
-2. **First-use model downloads** — Ollama pulls missing models at startup and
-   Kokoro weights download on first Audio Overview; both are local-cache-once.
+2. **First-use model downloads** — Ollama pulls missing models at startup;
+   Kokoro TTS weights download on first Audio Overview; Whisper STT weights
+   download on first video/audio transcription. All are local-cache-once.
 
 There is no telemetry, analytics, or cloud logging of any kind.
 
@@ -113,11 +125,15 @@ app/
   prompts/         the two quality-critical prompts, as editable text files
     grounded_answer.txt   closed-world cited answering
     podcast_script.txt    two-host audio overview script
-  ingest.py        PDF (PyMuPDF), DOCX (python-docx), text, hardened URL fetch
+    chart_spec.txt        grounded chart extraction (bar/line/pie JSON)
+    infographic_spec.txt  grounded infographic extraction
+    spreadsheet_spec.txt  grounded tabular-data extraction
+  ingest.py        PDF (PyMuPDF), DOCX (python-docx), XLSX (openpyxl), text,
+                   video/audio transcription (Whisper), hardened URL fetch
   chunker.py       paragraph-packing chunker (~800 tok, overlap), page metadata
   store.py         LanceDB vector store + BM25, reciprocal-rank-fusion hybrid search
   rag.py           retrieval → grounded prompt → streamed cited answer
-  studio.py        podcast script generation + TTS synthesis + WAV assembly
+  studio.py        podcast generation + chart/infographic/spreadsheet artifacts
   db.py            SQLite metadata (notebooks, sources, messages, audio overviews)
   diagnostics.py   python -m app.diagnostics
   main.py          FastAPI endpoints + SSE chat streaming
@@ -139,6 +155,18 @@ on malformed output) → per-line TTS through the provider → resampled, pause-
 mono WAV in `data/audio/` → metadata row in SQLite → playable/downloadable in the
 Studio panel. A per-notebook server-side lock prevents parallel generation jobs.
 
+**Video/audio source flow:** upload → stored in `data/uploads/` → transcribed
+through the STT provider → transcript blocks chunked with their start second in
+the location slot → embedded and indexed like any text. Playback streams from
+`/api/media/{source_id}` (with HTTP Range support for seeking); a chat citation
+on a media source shows its timestamp and can open the player at that moment.
+
+**Artifact flow:** notebook chunks → kind-specific grounded prompt → strict JSON
+spec, shape-validated server-side (one retry) → persisted in SQLite → rendered
+client-side as SVG (charts, infographics) or an HTML table (spreadsheets, also
+materialized as a real `.xlsx` in `data/artifacts/`). The prompts forbid invented
+numbers and instruct the model to refuse when the sources hold no usable data.
+
 **Why LanceDB:** embedded (no server process), columnar with fast ANN and
 SQL-style metadata filtering, and the whole index is one portable directory.
 
@@ -152,7 +180,15 @@ rank fusion.
 - Scanned (image-only) PDFs are rejected — there is no OCR.
 - URL extraction targets article-like pages; heavily scripted pages may yield nothing.
 - Audio Overview generation is synchronous and takes a few minutes; the UI stays
-  responsive but the result appears only when finished.
+  responsive but the result appears only when finished. Video transcription is
+  likewise synchronous (roughly real-time or faster with `whisper-base` on CPU).
+- Transcription quality depends on audio clarity and the `STT_MODEL` size;
+  videos without speech are rejected ("No speech detected").
+- Chart/infographic/spreadsheet quality depends on the sources actually
+  containing numeric or tabular facts; the model is instructed to refuse
+  rather than invent data.
+- Browser playback supports what the browser supports — MP4/WebM play everywhere;
+  MKV/AVI ingest fine but may not play in every browser.
 - TTS voices are English-focused (Kokoro `en-us` voices by default).
 
 ## Future work (intentionally out of scope)
@@ -160,4 +196,3 @@ rank fusion.
 - Video Overviews and slide decks
 - Deep Research / web search (the app is closed-world by design)
 - Studio text artifacts: briefing docs, study guides, FAQs, timelines, mind maps
-- Whisper ingestion for audio/video sources

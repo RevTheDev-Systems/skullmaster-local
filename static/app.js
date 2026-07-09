@@ -784,7 +784,8 @@ function showArtifact(a) {
     }
   }
 
-  if (a.spec.source_note) {
+  // the infographic SVG already prints its own source line
+  if (a.spec.source_note && a.kind !== "infographic") {
     const note = document.createElement("div");
     note.className = "source-note";
     note.textContent = `Source: ${a.spec.source_note}`;
