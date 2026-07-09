@@ -61,7 +61,8 @@ header {
   position: relative;
   z-index: 5;
 }
-.brand { font-weight: 800; font-size: 18px; letter-spacing: -0.01em; }
+.brand { font-weight: 800; font-size: 18px; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; }
+.brand-mark { width: 28px; height: 28px; display: block; border-radius: 6px; }
 .brand span { color: var(--accent); font-weight: 500; }
 .nb-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .header-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
