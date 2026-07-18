@@ -5,3 +5,40 @@ data/
 .env
 models/
 .DS_Store
+
+# Python / local env
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local app runtime data
+uploads/
+audio/
+outputs/
+storage/
+chroma/
+chromadb/
+lancedb/
+*.sqlite
+*.sqlite3
+*.db
+
+# Generated media
+*.wav
+*.mp3
+*.m4a
+
+# Frontend
+node_modules/
+dist/
+build/
+
+# Local config / secrets
+.env
+.env.local
+.env.*.local
+
+# macOS
+.DS_Store
