@@ -38,10 +38,18 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("skullmaster")
 
 
+CHAT_MODEL_SETTING = "chat_model"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
     log.info("%s v%s starting", PRODUCT_NAME, APP_VERSION)
+    # A model picked in the UI overrides the .env default for later runs.
+    saved = db.get_setting(CHAT_MODEL_SETTING)
+    if saved:
+        get_llm().set_chat_model(saved)
+        log.info("Chat model restored from settings: %s", saved)
     result = get_llm().ensure_models()
     log.info("Model check: %s", result)
     yield
@@ -225,6 +233,42 @@ def _health() -> dict:
 @app.get("/api/health")
 def health():
     return _health()
+
+
+# ---------- Models ----------
+
+class ModelIn(BaseModel):
+    name: str
+
+
+@app.get("/api/models")
+def models_list():
+    """Installed models plus which one chat is currently using."""
+    llm = get_llm()
+    try:
+        models = llm.list_models()
+    except Exception as e:
+        raise HTTPException(503, f"Could not reach the model backend: {e}")
+    return {"models": models, "chat_model": llm.chat_model}
+
+
+@app.post("/api/models/chat")
+def models_set_chat(body: ModelIn):
+    """Switch the active chat model and remember it across restarts."""
+    llm = get_llm()
+    try:
+        available = {m["name"]: m for m in llm.list_models()}
+    except Exception as e:
+        raise HTTPException(503, f"Could not reach the model backend: {e}")
+    chosen = available.get(body.name)
+    if not chosen:
+        raise HTTPException(404, f"Model not installed: {body.name}")
+    if not chosen["can_chat"]:
+        raise HTTPException(400, f"{body.name} cannot generate chat responses")
+    llm.set_chat_model(body.name)
+    db.set_setting(CHAT_MODEL_SETTING, body.name)
+    log.info("Chat model switched to %s", body.name)
+    return {"ok": True, "chat_model": body.name}
 
 
 # ---------- Notebooks ----------

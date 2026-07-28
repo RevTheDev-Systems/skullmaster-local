@@ -57,7 +57,16 @@ requires a valid session — including `/health` and every `/api/*` route.
 
 ## Swapping models (the whole point of the provider layer)
 
-All model selection lives in `.env` — zero code edits to swap:
+**From the UI:** the header has a model picker listing every chat-capable model
+installed in Ollama. Switching takes effect immediately and is remembered across
+restarts (stored in the `settings` table, overriding the `.env` default). The ⟳
+button re-reads the model list and readiness. Embedding-only models are filtered
+out of the picker, since they can't answer chat.
+
+Embedding and TTS models stay in `.env` on purpose: changing `EMBED_MODEL`
+invalidates every stored vector, so it shouldn't be a one-click action.
+
+**From `.env`:** all model selection lives here — zero code edits to swap:
 
 | Variable | Purpose | Examples |
 |---|---|---|

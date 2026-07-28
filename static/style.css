@@ -114,7 +114,21 @@ button { cursor: pointer; }
   font-size: 0.84rem;
   max-width: 100%;
 }
+.model-badge[hidden] { display: none; }
 .model-badge.err { color: var(--danger); background: var(--danger-soft); }
+
+/* Readiness indicator — replaces the old chat/embed/tts label soup */
+.status-dot {
+  width: 9px; height: 9px; border-radius: 50%; flex: none;
+  background: var(--muted);
+  transition: background .2s, box-shadow .2s;
+}
+.status-dot.ok { background: var(--success); box-shadow: 0 0 0 3px var(--success-soft); }
+.status-dot.err { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+
+#model-select { max-width: 230px; padding: 9px 12px; font-size: 0.88rem; }
+#health-refresh.spinning { animation: spin .6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 select, input[type="text"], input[type="url"], button, .btn {
   border-radius: 16px;

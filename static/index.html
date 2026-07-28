@@ -34,8 +34,11 @@
       </div>
 
       <div class="status-controls">
-        <div class="model-badge" id="model-badge" role="status">checking models…</div>
-        <button id="health-refresh" type="button" title="Refresh model status" aria-label="Refresh model status">⟳</button>
+        <span class="status-dot" id="status-dot" title="Checking…"></span>
+        <label class="visually-hidden" for="model-select">Model</label>
+        <select id="model-select" aria-label="Model" title="Model"></select>
+        <div class="model-badge" id="model-badge" role="status" hidden></div>
+        <button id="health-refresh" type="button" title="Refresh models" aria-label="Refresh models">⟳</button>
         <button id="theme-toggle" type="button" title="Toggle theme" aria-label="Toggle theme">🌙</button>
         <button id="sign-out" type="button" title="Sign out" aria-label="Sign out">Sign out</button>
       </div>

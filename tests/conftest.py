@@ -72,6 +72,19 @@ class MockLLM:
     def ensure_models(self):
         return {self.chat_model: "ready", self.embed_model: "ready"}
 
+    def list_models(self):
+        return [
+            {"name": "mock-chat", "size": 1, "parameter_size": "7B",
+             "can_chat": True, "can_embed": False},
+            {"name": "mock-chat-2", "size": 2, "parameter_size": "13B",
+             "can_chat": True, "can_embed": False},
+            {"name": "mock-embed", "size": 3, "parameter_size": "137M",
+             "can_chat": False, "can_embed": True},
+        ]
+
+    def set_chat_model(self, name):
+        self.chat_model = name
+
     def status(self):
         return {
             "backend": "mock", "base_url": "local", "reachable": True,

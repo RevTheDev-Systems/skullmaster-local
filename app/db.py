@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS audio_overviews (
     line_count INTEGER NOT NULL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS app_user (
     id INTEGER PRIMARY KEY CHECK (id = 1),   -- single owner account
     password_hash TEXT NOT NULL,
@@ -260,6 +264,23 @@ def list_audio_overviews(notebook_id: str) -> list[dict]:
             (notebook_id,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------- Settings ----------
+
+def get_setting(key: str, default: str | None = None) -> str | None:
+    with conn() as c:
+        row = c.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(key: str, value: str):
+    with conn() as c:
+        c.execute(
+            "INSERT INTO settings VALUES (?, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
 
 
 # ---------- Auth: owner account + sessions ----------

@@ -20,7 +20,9 @@ Global behaviors that apply to every control:
 | Header | ＋ New | Create notebook | `POST /api/notebooks` | — | Select updates + success toast | Toast | — | ✅ |
 | Header | ✏️ Rename | Rename notebook (prompt + confirm) | `PATCH /api/notebooks/{id}` | — | Select label updates + toast | Toast | No-op when unchanged/empty | ✅ |
 | Header | 🗑 Delete | Delete notebook (confirm dialog) | `DELETE /api/notebooks/{id}` | — | Next notebook loads + toast | Toast | No-op without selection | ✅ |
-| Header | ⟳ Refresh model status | Re-check health | `GET /api/health` | "checking…" | Model badge text | Red badge (Ollama unreachable / model missing) | — | ✅ |
+| Header | Model picker | Switch the active chat model | `POST /api/models/chat` (persisted in `settings`) | Select disabled during switch | Green dot + "Now using …" toast | Toast; selection reverts to previous | Disabled when no chat model is installed | ✅ |
+| Header | ⟳ Refresh models | Re-read model list + readiness | `GET /api/health` + `GET /api/models` | Button disabled, icon spins (min 450ms so it's perceptible) | Toast "Models refreshed · N installed" | Red dot + message + toast | Disabled while refreshing | ✅ |
+| Header | Readiness dot | Show system state | derived from `/api/health` | — | Green + "Ready · <model>" tooltip | Red + plain-language cause | — | ✅ |
 | Header | 🌙/☀️ Theme toggle | Light ⇄ dark theme | localStorage `skullmaster-theme` | — | Instant theme + icon swap | n/a | — | ✅ |
 | Sources | 📄 Upload file | Open file picker, ingest | `POST …/sources/file` | Button disabled + progress banner (n/m for multi-file) | Source row + toast | Toast per file (422 unsupported/empty, 409 duplicate, 413 too large, 503 embed) | Disabled while any ingestion runs | ✅ |
 | Sources | URL input + Add (form submit) | Fetch & ingest URL | `POST …/sources/url` | Inputs disabled + progress banner | Row + toast, input cleared | Toast (non-http(s) rejected, timeout, size cap, duplicate) | Disabled while ingesting; `required` blocks empty | ✅ |

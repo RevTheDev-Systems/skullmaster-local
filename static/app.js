@@ -7,6 +7,7 @@ const state = {
   history: [],          // [{role, content}] for model context
   chatBusy: false,
   ingestBusy: false,
+  chatModel: null,      // active chat model, mirrored from /api/models
 };
 
 // ---------- Toasts ----------
@@ -73,29 +74,101 @@ $("#sign-out").addEventListener("click", async () => {
   window.location.replace("/login");
 });
 
-// ---------- Health ----------
-async function loadHealth() {
+// ---------- Models & readiness ----------
+function setStatus(state, detail) {
+  const dot = $("#status-dot");
+  dot.classList.toggle("ok", state === "ok");
+  dot.classList.toggle("err", state === "err");
+  dot.title = detail;
+  dot.setAttribute("aria-label", detail);
+
+  // Only surface a written message when something is actually wrong.
   const badge = $("#model-badge");
-  badge.classList.remove("err");
-  badge.textContent = "checking…";
+  badge.hidden = state !== "err";
+  badge.classList.toggle("err", state === "err");
+  if (state === "err") badge.textContent = detail;
+}
+
+function problemFromHealth(h) {
+  if (!h.llm.reachable) return "Model backend unreachable";
+  if (!h.llm.chat_model_ready) return `${h.llm.chat_model} is not installed`;
+  if (!h.llm.embed_model_ready) return `${h.llm.embed_model} is not installed`;
+  if (!h.vector_store?.ready) return "Vector store unavailable";
+  if (!h.database?.ready) return "Local database unavailable";
+  return "Degraded — run diagnostics";
+}
+
+async function loadModels({ notify = false } = {}) {
+  const select = $("#model-select");
+  const btn = $("#health-refresh");
+  btn.disabled = true;
+  btn.classList.add("spinning");
+  // Guarantee the spin is perceptible even when the backend answers instantly.
+  const minSpin = new Promise((r) => setTimeout(r, 450));
+
   try {
-    const h = await api("/api/health");
-    if (h.ok) {
-      badge.textContent =
-        `chat: ${h.llm.chat_model} · embed: ${h.llm.embed_model} · tts: ${h.tts.backend}`;
+    const [health, models] = await Promise.all([
+      api("/api/health"),
+      api("/api/models").catch(() => null),
+    ]);
+
+    if (models) {
+      const chatModels = models.models.filter((m) => m.can_chat);
+      select.innerHTML = "";
+      for (const m of chatModels) {
+        const opt = document.createElement("option");
+        opt.value = m.name;
+        opt.textContent = m.name;
+        select.appendChild(opt);
+      }
+      select.value = models.chat_model;
+      select.disabled = chatModels.length === 0;
+      state.chatModel = models.chat_model;
     } else {
-      badge.classList.add("err");
-      badge.textContent = !h.llm.reachable ? "⚠ Ollama unreachable"
-        : !h.llm.chat_model_ready ? `⚠ chat model ${h.llm.chat_model} missing`
-        : !h.llm.embed_model_ready ? `⚠ embed model ${h.llm.embed_model} missing`
-        : "⚠ degraded — run diagnostics";
+      select.innerHTML = "";
+      select.disabled = true;
     }
-  } catch {
-    badge.classList.add("err");
-    badge.textContent = "⚠ backend unreachable";
+
+    setStatus(health.ok ? "ok" : "err",
+              health.ok ? `Ready · ${health.llm.chat_model}` : problemFromHealth(health));
+    if (notify) {
+      await minSpin;
+      toast(health.ok ? `Models refreshed · ${models?.models.length ?? 0} installed`
+                      : problemFromHealth(health),
+            health.ok ? "success" : "error");
+    }
+  } catch (err) {
+    setStatus("err", err.message || "Backend unreachable");
+    select.disabled = true;
+    if (notify) {
+      await minSpin;
+      toast(`Refresh failed: ${err.message}`);
+    }
+  } finally {
+    await minSpin;
+    btn.disabled = false;
+    btn.classList.remove("spinning");
   }
 }
-$("#health-refresh").addEventListener("click", loadHealth);
+
+$("#health-refresh").addEventListener("click", () => loadModels({ notify: true }));
+
+$("#model-select").addEventListener("change", async (e) => {
+  const name = e.target.value;
+  const previous = state.chatModel;
+  e.target.disabled = true;
+  try {
+    await api("/api/models/chat", { method: "POST", body: JSON.stringify({ name }) });
+    state.chatModel = name;
+    setStatus("ok", `Ready · ${name}`);
+    toast(`Now using ${name}`, "success");
+  } catch (err) {
+    e.target.value = previous || "";
+    toast(`Could not switch model: ${err.message}`);
+  } finally {
+    e.target.disabled = false;
+  }
+});
 
 // ---------- Notebooks ----------
 async function loadNotebooks() {
@@ -903,7 +976,7 @@ for (const btn of document.querySelectorAll(".artifact-buttons button")) {
 
 // ---------- Init ----------
 (async () => {
-  await loadHealth();
+  await loadModels();
   try {
     await loadNotebooks();
   } catch (err) {

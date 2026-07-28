@@ -14,6 +14,7 @@ class OllamaProvider:
         self.client = ollama.Client(host=OLLAMA_BASE_URL)
         self.chat_model = CHAT_MODEL
         self.embed_model = EMBED_MODEL
+        self._thinking: dict[str, bool] = {}   # model name -> supports thinking
 
     # ---- chat ----
 
@@ -23,19 +24,39 @@ class OllamaProvider:
         parts = list(self._chat_stream(messages))
         return "".join(parts)
 
-    def _chat_stream(self, messages: list[dict]) -> Iterator[str]:
+    def _raw_stream(self, messages: list[dict], think: bool) -> Iterator[str]:
         # think=True makes Ollama route reasoning into a separate `thinking`
         # field so `content` stays clean; we never yield thinking tokens.
-        try:
-            stream = self.client.chat(model=self.chat_model, messages=messages,
-                                      stream=True, think=True)
-        except (TypeError, ollama.ResponseError):
-            # backend or model without thinking support
-            stream = self.client.chat(model=self.chat_model, messages=messages, stream=True)
+        kwargs = {"think": True} if think else {}
+        stream = self.client.chat(model=self.chat_model, messages=messages,
+                                  stream=True, **kwargs)
         for part in stream:
             content = part.get("message", {}).get("content", "")
             if content:
                 yield content
+
+    def _supports_thinking(self, model: str) -> bool:
+        if model not in self._thinking:
+            self._thinking[model] = "thinking" in self._capabilities(model)
+        return self._thinking[model]
+
+    def _chat_stream(self, messages: list[dict]) -> Iterator[str]:
+        think = self._supports_thinking(self.chat_model)
+        emitted = False
+        try:
+            for content in self._raw_stream(messages, think):
+                emitted = True
+                yield content
+            return
+        except (TypeError, ollama.ResponseError):
+            # Ollama rejects `think` only once the lazy stream is consumed, so
+            # this fallback cannot live around the client.chat() call itself.
+            # Never retry after partial output — it would duplicate tokens.
+            if emitted or not think:
+                raise
+            log.info("Model %s rejected thinking mode; retrying without it", self.chat_model)
+            self._thinking[self.chat_model] = False
+        yield from self._raw_stream(messages, False)
 
     # ---- embeddings ----
 
@@ -50,6 +71,29 @@ class OllamaProvider:
 
     def _installed(self) -> set[str]:
         return {m.model for m in self.client.list().models}
+
+    def _capabilities(self, name: str) -> list[str]:
+        """Ollama reports capabilities from show(), not list()."""
+        try:
+            return list(getattr(self.client.show(name), "capabilities", None) or [])
+        except Exception:
+            return []
+
+    def list_models(self) -> list[dict]:
+        models = []
+        for m in self.client.list().models:
+            caps = self._capabilities(m.model)
+            models.append({
+                "name": m.model,
+                "size": m.size,
+                "parameter_size": getattr(m.details, "parameter_size", None) if m.details else None,
+                "can_chat": "completion" in caps,
+                "can_embed": "embedding" in caps,
+            })
+        return sorted(models, key=lambda m: m["name"])
+
+    def set_chat_model(self, name: str):
+        self.chat_model = name
 
     def ensure_models(self) -> dict:
         result = {}

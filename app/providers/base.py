@@ -19,6 +19,14 @@ class LLMProvider(Protocol):
         Returns {model_name: 'ready' | 'pulled' | 'error: ...'}."""
         ...
 
+    def list_models(self) -> list[dict]:
+        """Installed models: [{name, size, parameter_size, can_chat, can_embed}]."""
+        ...
+
+    def set_chat_model(self, name: str):
+        """Switch the active chat model for this process."""
+        ...
+
     def status(self) -> dict:
         """Lightweight health info: {backend, chat_model, embed_model, reachable}."""
         ...
