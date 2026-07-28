@@ -11,6 +11,10 @@ import tempfile
 
 _TMP = tempfile.mkdtemp(prefix="skullmaster-test-")
 os.environ["NLM_DATA_DIR"] = _TMP
+# Keep password hashing fast in tests; production uses the 600k default.
+os.environ["SM_PBKDF2_ITERATIONS"] = "1000"
+
+TEST_PASSWORD = "test-password-1234"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -115,9 +119,22 @@ def mock_llm(monkeypatch):
 
 
 @pytest.fixture()
-def client(mock_llm):
+def anon_client(mock_llm):
+    """A client with no session — for testing the auth guard itself."""
     db.init_db()
     with TestClient(main.app) as c:
+        yield c
+
+
+@pytest.fixture()
+def client(mock_llm):
+    """Signed-in client: sets the owner password on first use, then logs in."""
+    db.init_db()
+    with TestClient(main.app) as c:
+        if c.get("/api/auth/status").json()["setup_required"]:
+            c.post("/api/auth/setup", json={"password": TEST_PASSWORD})
+        else:
+            c.post("/api/auth/login", json={"password": TEST_PASSWORD})
         yield c
 
 

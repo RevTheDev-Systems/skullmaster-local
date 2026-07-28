@@ -52,12 +52,26 @@ async function api(path, opts = {}) {
       ? { "Content-Type": "application/json" } : undefined,
     ...opts,
   });
+  if (res.status === 401) {
+    window.location.replace("/login");
+    throw new Error("Session expired");
+  }
   if (!res.ok) {
     const detail = (await res.json().catch(() => ({}))).detail || res.statusText;
     throw new Error(detail);
   }
   return res.json();
 }
+
+// ---------- Sign out ----------
+$("#sign-out").addEventListener("click", async () => {
+  const btn = $("#sign-out");
+  btn.disabled = true;
+  try {
+    await api("/api/auth/logout", { method: "POST" });
+  } catch { /* falling through to /login is the right outcome either way */ }
+  window.location.replace("/login");
+});
 
 // ---------- Health ----------
 async function loadHealth() {
@@ -455,6 +469,7 @@ $("#chat-form").addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question, history: state.history }),
     });
+    if (res.status === 401) { window.location.replace("/login"); return; }
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
 
     const reader = res.body.getReader();

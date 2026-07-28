@@ -8,12 +8,17 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import db, ingest, store
+from . import auth, db, ingest, store
 from .chunker import chunk_segments
 from .config import (
     APP_VERSION,
@@ -74,6 +79,105 @@ class _job:
 async def unhandled_error(request: Request, exc: Exception):
     log.exception("Unhandled error on %s %s", request.method, request.url.path)
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+# ---------- Authentication guard ----------
+
+# Reachable without a session: the login screen, its assets, and liveness.
+PUBLIC_PATHS = {
+    "/login", "/healthz", "/favicon.ico",
+    "/api/auth/status", "/api/auth/login", "/api/auth/setup",
+}
+PUBLIC_PREFIXES = ("/static/",)
+
+
+@app.middleware("http")
+async def require_session(request: Request, call_next):
+    path = request.url.path
+    if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES):
+        return await call_next(request)
+    if auth.validate_session(request.cookies.get(auth.COOKIE_NAME)):
+        return await call_next(request)
+    # Browser navigations get sent to the login screen; API calls get a 401 so
+    # the client can redirect without following an HTML response.
+    if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
+        return RedirectResponse("/login", status_code=303)
+    return JSONResponse(status_code=401, content={"detail": "Authentication required"})
+
+
+class PasswordIn(BaseModel):
+    password: str
+
+
+def _set_session_cookie(response: Response, token: str):
+    response.set_cookie(
+        auth.COOKIE_NAME, token,
+        max_age=auth.SESSION_DAYS * 24 * 3600,
+        httponly=True,       # not readable from JavaScript
+        samesite="lax",      # not sent on cross-site requests
+        path="/",
+    )
+
+
+@app.get("/healthz")
+def liveness():
+    """Unauthenticated liveness probe used by the launcher script."""
+    return {"status": "alive", "product": PRODUCT_NAME, "version": APP_VERSION}
+
+
+@app.get("/api/auth/status")
+def auth_status(request: Request):
+    return {
+        "authenticated": auth.validate_session(request.cookies.get(auth.COOKIE_NAME)),
+        "setup_required": auth.setup_required(),
+        "product": PRODUCT_NAME,
+        "min_password_length": auth.MIN_PASSWORD_LENGTH,
+    }
+
+
+@app.post("/api/auth/setup")
+def auth_setup(body: PasswordIn, response: Response):
+    """First-run: the owner chooses their password. Refused once one exists."""
+    if not auth.setup_required():
+        raise HTTPException(409, "A password has already been set")
+    try:
+        auth.set_password(body.password)
+    except auth.AuthError as e:
+        raise HTTPException(400, str(e))
+    _set_session_cookie(response, auth.create_session())
+    log.info("Owner password created")
+    return {"ok": True}
+
+
+@app.post("/api/auth/login")
+def auth_login(body: PasswordIn, request: Request, response: Response):
+    if auth.setup_required():
+        raise HTTPException(409, "No password has been set yet")
+    client = request.client.host if request.client else "unknown"
+    locked = auth.seconds_until_unlocked(client)
+    if locked:
+        raise HTTPException(429, f"Too many attempts — try again in {locked}s")
+    if not auth.verify_password(body.password):
+        auth.record_failure(client)
+        log.warning("Failed login attempt from %s", client)
+        raise HTTPException(401, "Incorrect password")
+    auth.clear_failures(client)
+    _set_session_cookie(response, auth.create_session())
+    return {"ok": True}
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request, response: Response):
+    auth.destroy_session(request.cookies.get(auth.COOKIE_NAME))
+    response.delete_cookie(auth.COOKIE_NAME, path="/")
+    return {"ok": True}
+
+
+@app.get("/login")
+def login_page(request: Request):
+    if auth.validate_session(request.cookies.get(auth.COOKIE_NAME)):
+        return RedirectResponse("/", status_code=303)
+    return FileResponse(STATIC_DIR / "login.html")
 
 
 class NotebookIn(BaseModel):

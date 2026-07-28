@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Sign in · SkullMaster iQ</title>
+  <meta name="theme-color" content="#07111f" />
+  <link rel="icon" type="image/png" href="/static/favicon.png" />
+  <link rel="apple-touch-icon" href="/static/app-icon-1024.png" />
+  <link rel="manifest" href="/static/manifest.webmanifest" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/login.css" />
+</head>
+<body class="login-body">
+  <main class="login-shell">
+    <section class="login-card" aria-labelledby="login-heading">
+      <img src="/static/logo.png" class="login-mark" alt="" />
+      <div class="login-brand">SkullMaster <span>iQ</span></div>
+
+      <h1 id="login-heading">Sign in</h1>
+      <p class="login-sub" id="login-sub">Enter your password to open your notebooks.</p>
+
+      <form id="login-form" novalidate>
+        <label class="field">
+          <span class="field-label" id="password-label">Password</span>
+          <input type="password" id="password" name="password"
+                 autocomplete="current-password" required autofocus />
+        </label>
+
+        <label class="field" id="confirm-field" hidden>
+          <span class="field-label">Confirm password</span>
+          <input type="password" id="confirm" name="confirm" autocomplete="new-password" />
+        </label>
+
+        <p class="login-error" id="login-error" role="alert" hidden></p>
+
+        <button type="submit" class="btn primary login-submit" id="login-submit">Sign in</button>
+      </form>
+
+      <p class="login-note" id="login-note">
+        Your password is stored only on this machine as a salted hash, and never leaves it.
+      </p>
+    </section>
+  </main>
+
+  <script src="/static/login.js"></script>
+</body>
+</html>

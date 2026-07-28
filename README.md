@@ -13,7 +13,8 @@ via [Ollama](https://ollama.com). No cloud APIs, no telemetry, no tracking.
 - **Audio Overview** — a two-host podcast conversation about your sources, synthesized with a local TTS model, playable and downloadable in the UI
 - **Charts, infographics & spreadsheets** — Studio generates grounded artifacts from your sources: bar/line/pie charts and infographics (downloadable as SVG) and extracted data tables (downloadable as XLSX/CSV); numbers are validated to come from the sources, and the model refuses when the notebook has no usable data
 - **Persistent** — notebooks, sources, chat history, audio overviews, and artifacts survive refreshes and restarts
-- **Bright, accessible UI** — light-first design with an optional dark theme toggle
+- **Password-protected** — a sign-in screen guards every route and API endpoint; the password is stored only as a salted PBKDF2 hash on this machine
+- **Themed UI** — dark by default with a light theme one click away, and a mobile layout with a bottom tab bar
 
 ## Quick start
 
@@ -29,6 +30,30 @@ On first boot the app checks the models configured in `.env` and pulls any that
 are missing (progress is logged; startup won't silently hang). Kokoro TTS weights
 (~340MB) download once on the first Audio Overview. `scripts/launcher.sh` starts
 the server if needed and opens the UI.
+
+## Signing in
+
+The first time you open the app it shows **Create your password** — pick one
+(8+ characters) and it becomes the owner password for this install. After that
+the same screen asks you to sign in.
+
+- There is **no default password** and no recovery: nothing can be read from the
+  app until you set one, and no one (including these docs) knows it.
+- The password is stored only as a **PBKDF2-HMAC-SHA256 hash** (600,000 iterations,
+  per-install random salt) in `data/notebooks.db`. The plaintext is never written
+  anywhere.
+- Sessions live server-side; the browser cookie holds a random token and the
+  database stores only its SHA-256 hash, so a copied database can't be replayed
+  as a login. Cookies are `HttpOnly` + `SameSite=Lax`, and sessions last 14 days.
+- Five wrong attempts locks out login for 60 seconds.
+- **Forgot it?** There's no back door by design. Reset by clearing the owner row —
+  this keeps all your notebooks and only forces a fresh password setup:
+  ```bash
+  sqlite3 data/notebooks.db "DELETE FROM app_user; DELETE FROM sessions;"
+  ```
+
+Everything except the login screen, its assets, and the `/healthz` liveness probe
+requires a valid session — including `/health` and every `/api/*` route.
 
 ## Swapping models (the whole point of the provider layer)
 
@@ -134,10 +159,13 @@ app/
   store.py         LanceDB vector store + BM25, reciprocal-rank-fusion hybrid search
   rag.py           retrieval → grounded prompt → streamed cited answer
   studio.py        podcast generation + chart/infographic/spreadsheet artifacts
-  db.py            SQLite metadata (notebooks, sources, messages, audio overviews)
+  auth.py          password hashing (PBKDF2), server-side sessions, login throttling
+  db.py            SQLite metadata (notebooks, sources, messages, audio, artifacts,
+                   owner account, sessions)
   diagnostics.py   python -m app.diagnostics
-  main.py          FastAPI endpoints + SSE chat streaming
+  main.py          FastAPI endpoints, auth guard middleware, SSE chat streaming
 static/            three-panel web UI (Sources | Chat | Studio), vanilla JS
+  login.html/.css/.js   sign-in and first-run password setup screen
 tests/             pytest unit + integration suite
 docs/              implementation audit + action/button audit
 data/              runtime state: uploads, LanceDB, SQLite, generated audio

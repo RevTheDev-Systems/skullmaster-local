@@ -39,6 +39,18 @@ CREATE TABLE IF NOT EXISTS audio_overviews (
     line_count INTEGER NOT NULL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS app_user (
+    id INTEGER PRIMARY KEY CHECK (id = 1),   -- single owner account
+    password_hash TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    iterations INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,             -- sha256 of the cookie token
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS artifacts (
     id TEXT PRIMARY KEY,
     notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
@@ -248,6 +260,52 @@ def list_audio_overviews(notebook_id: str) -> list[dict]:
             (notebook_id,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------- Auth: owner account + sessions ----------
+
+def get_app_user() -> dict | None:
+    with conn() as c:
+        row = c.execute("SELECT * FROM app_user WHERE id = 1").fetchone()
+    return dict(row) if row else None
+
+
+def set_app_user(password_hash: str, salt: str, iterations: int):
+    with conn() as c:
+        c.execute(
+            "INSERT INTO app_user VALUES (1, :password_hash, :salt, :iterations, :created_at)"
+            " ON CONFLICT(id) DO UPDATE SET password_hash = :password_hash,"
+            " salt = :salt, iterations = :iterations, created_at = :created_at",
+            {"password_hash": password_hash, "salt": salt,
+             "iterations": iterations, "created_at": _now()},
+        )
+
+
+def create_session(token_hash: str, expires_at: str):
+    with conn() as c:
+        c.execute("INSERT OR REPLACE INTO sessions VALUES (?, ?, ?)",
+                  (token_hash, _now(), expires_at))
+
+
+def get_session(token_hash: str) -> dict | None:
+    with conn() as c:
+        row = c.execute("SELECT * FROM sessions WHERE token_hash = ?", (token_hash,)).fetchone()
+    return dict(row) if row else None
+
+
+def delete_session(token_hash: str):
+    with conn() as c:
+        c.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+
+
+def delete_all_sessions():
+    with conn() as c:
+        c.execute("DELETE FROM sessions")
+
+
+def purge_expired_sessions(now_iso: str):
+    with conn() as c:
+        c.execute("DELETE FROM sessions WHERE expires_at <= ?", (now_iso,))
 
 
 # ---------- Studio artifacts ----------

@@ -176,8 +176,11 @@ def test_data_survives_client_restart(client, notebook):
     from fastapi.testclient import TestClient
     from app import main as main_mod
 
+    from tests.conftest import TEST_PASSWORD
+
     _upload(client, notebook["id"])
     with TestClient(main_mod.app) as fresh:
+        fresh.post("/api/auth/login", json={"password": TEST_PASSWORD})
         nbs = fresh.get("/api/notebooks").json()
         assert notebook["id"] in [n["id"] for n in nbs]
         sources = fresh.get(f"/api/notebooks/{notebook['id']}/sources").json()

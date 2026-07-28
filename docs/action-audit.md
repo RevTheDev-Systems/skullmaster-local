@@ -12,6 +12,10 @@ Global behaviors that apply to every control:
 
 | Screen | Control (accessible name) | Action | Backend / behavior | Loading | Success | Error | Disabled logic | Tested |
 |---|---|---|---|---|---|---|---|---|
+| Login | Password field | Owner password entry | — | — | — | Inline error region | — | ✅ |
+| Login | Confirm password (setup only) | Confirm new password | Client-side match check | — | — | "The two passwords don't match." | Hidden outside first-run setup | ✅ |
+| Login | Create password / Sign in (submit) | First-run setup or sign-in | `POST /api/auth/setup` / `/api/auth/login` | Button disabled, "Creating…"/"Signing in…" | Redirect to `/` | Inline error (wrong password, too short, 429 lockout, server unreachable); fields cleared | Guarded against double-submit | ✅ |
+| Header | Sign out | End session | `POST /api/auth/logout` | Button disabled | Redirect to `/login` | Redirects anyway (fail-safe) | — | ✅ |
 | Header | Notebook select | Switch notebook | `GET sources/messages/audio-overviews` | — | Panels reload | Toast | — | ✅ |
 | Header | ＋ New | Create notebook | `POST /api/notebooks` | — | Select updates + success toast | Toast | — | ✅ |
 | Header | ✏️ Rename | Rename notebook (prompt + confirm) | `PATCH /api/notebooks/{id}` | — | Select label updates + toast | Toast | No-op when unchanged/empty | ✅ |
@@ -41,6 +45,25 @@ Global behaviors that apply to every control:
 | Artifact modal | ⬇ CSV | Download table as CSV | Client-side blob | — | .csv saved | n/a | Spreadsheets only | ✅ |
 | Artifact modal | ⬇ XLSX | Download real Excel file | `GET /api/artifacts/{id}/file` | Browser native | .xlsx saved | 404 if file missing | Spreadsheets only | ✅ (200, correct content-type, round-trip read) |
 | Artifact modal | ✕ Close | Close artifact view | Client-side | — | Modal hidden | n/a | — | ✅ (click, backdrop, Esc) |
+
+## Authentication behavior verified
+
+- **First run** → `/` redirects to `/login`, which renders in "Create your password" mode.
+- **Password rules** → under 8 characters rejected server-side; mismatched confirm
+  rejected client-side before any request is sent.
+- **Setup cannot be replayed** → a second `POST /api/auth/setup` returns 409, so an
+  existing install can't be taken over.
+- **Guard** → every `/api/*` route and `/health` return 401 without a session;
+  HTML navigations get a 303 to `/login` instead. Only `/login`, `/static/*`,
+  `/healthz`, and the three auth endpoints are public.
+- **Wrong password** → 401 with "Incorrect password", fields cleared, no redirect.
+- **Throttling** → 5 failures locks login for 60s (429 with remaining time).
+- **Session hardening** → cookie is `HttpOnly` (confirmed unreadable from
+  `document.cookie`), `SameSite=Lax`, `Path=/`; only the token's SHA-256 hash is
+  stored, and logout invalidates it server-side (a replayed cookie still 401s).
+- **Expiry** → past-dated sessions are rejected and purged.
+- **Persistence** → session survives reload and server restart; expired/absent
+  session sends the SPA to `/login` via the shared 401 handler.
 
 ## Edge cases exercised
 
