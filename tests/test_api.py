@@ -19,12 +19,12 @@ def _upload(client, nb_id, name=b"doc.txt", content=TXT):
 
 def test_health_shape(client):
     body = client.get("/health").json()
-    assert body["product"] == "SkullMaster Local"
+    assert body["product"] == "SkullMaster iQ"
     assert body["status"] == "ok" and body["ok"] is True
     for key in ("version", "llm", "tts", "vector_store", "database"):
         assert key in body
     assert body["database"]["ready"] is True
-    assert client.get("/api/health").json()["product"] == "SkullMaster Local"
+    assert client.get("/api/health").json()["product"] == "SkullMaster iQ"
 
 
 # ---------- notebooks ----------

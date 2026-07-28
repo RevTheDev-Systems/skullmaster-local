@@ -24,10 +24,26 @@ function applyTheme(theme) {
   localStorage.setItem("skullmaster-theme", theme);
   $("#theme-toggle").textContent = theme === "dark" ? "☀️" : "🌙";
 }
-applyTheme(localStorage.getItem("skullmaster-theme") || "light");
+applyTheme(localStorage.getItem("skullmaster-theme") || "dark");
 $("#theme-toggle").addEventListener("click", () => {
   applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
 });
+
+// ---------- Mobile panels ----------
+function setMobilePanel(name) {
+  localStorage.setItem("skullmaster-panel", name);
+  document.querySelectorAll("[data-panel]").forEach((panel) => {
+    panel.dataset.active = panel.dataset.panel === name ? "true" : "false";
+  });
+  document.querySelectorAll(".mobile-nav button").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.target === name);
+  });
+}
+
+for (const btn of document.querySelectorAll(".mobile-nav button")) {
+  btn.addEventListener("click", () => setMobilePanel(btn.dataset.target));
+}
+setMobilePanel(localStorage.getItem("skullmaster-panel") || "chat");
 
 // ---------- API helpers ----------
 async function api(path, opts = {}) {
@@ -298,6 +314,13 @@ function addMessage(role, text = "") {
 function updateChatEmpty() {
   $("#chat-empty").style.display = $("#messages").children.length ? "none" : "block";
 }
+
+document.querySelector("#chat-empty")?.addEventListener("click", (e) => {
+  const chip = e.target.closest(".quick-prompt");
+  if (!chip) return;
+  $("#chat-input").value = chip.dataset.prompt || "";
+  $("#chat-input").focus();
+});
 
 function renderWithCitations(el, text, citations) {
   el.innerHTML = "";
