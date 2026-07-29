@@ -33,6 +33,7 @@ Global behaviors that apply to every control:
 | Chat | Clear chat (confirm) | Wipe notebook chat history | `DELETE …/messages` | — | Empty state shown | Toast | No-op when history empty | ✅ |
 | Modal | ✕ Close | Close citation modal | Client-side | — | Modal hidden | n/a | — | ✅ (click, backdrop click, and Esc) |
 | Studio | 🎙 Generate Audio Overview | Script + TTS → WAV | `POST …/audio-overview` | Disabled + pulse + status text | New list entry + success toast | Toast (422 no sources, 409 already running) | Disabled while generating; server lock blocks parallel jobs from other tabs | ✅ (real qwen3:30b + kokoro, 143.8s WAV) |
+| Studio | 🧠 Mind Graph | Map notebook ideas as a concept graph | `POST …/artifacts {kind:"mindgraph"}` | All four artifact buttons disabled + progress banner | Radial SVG opens; entry added to the list | Toast (422 when sources are too thin) | Disabled while any artifact generates; server lock blocks parallel jobs | ✅ |
 | Studio | Audio player | Play/pause/seek | `GET /api/audio/{file}` | Browser native | Playback | Browser native | — | ✅ (played, paused, seeked to 60s) |
 | Studio | ⬇ Download WAV | Save audio file | Same endpoint, `download` attr | Browser native | File saved | Browser native | — | ✅ (200, audio/wav) |
 | Sources | ▶ Play (video/audio rows) | Open media player modal | `GET /api/media/{source_id}` (Range-capable) | — | Modal with `<video>`/`<audio>`, autoplays | Toast on media load error | Only rendered for ready media sources | ✅ (real mp4 played in modal) |

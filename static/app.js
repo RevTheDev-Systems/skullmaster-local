@@ -109,10 +109,24 @@ async function loadModels({ notify = false } = {}) {
   const minSpin = new Promise((r) => setTimeout(r, 450));
 
   try {
+    // Report a broken model list instead of silently emptying the picker —
+    // e.g. when the server process predates the endpoint and needs a restart.
+    let modelsError = null;
     const [health, models] = await Promise.all([
       api("/api/health"),
-      api("/api/models").catch(() => null),
+      api("/api/models").catch((err) => { modelsError = err.message; return null; }),
     ]);
+
+    if (modelsError) {
+      setStatus("err", `Model list unavailable: ${modelsError}. Restart the server if it's running older code.`);
+      select.innerHTML = "";
+      select.disabled = true;
+      if (notify) {
+        await minSpin;
+        toast(`Could not load models: ${modelsError}`);
+      }
+      return;
+    }
 
     if (models) {
       const chatModels = models.models.filter((m) => m.can_chat);
@@ -679,7 +693,12 @@ $("#audio-overview-btn").addEventListener("click", async () => {
 const SVGNS = "http://www.w3.org/2000/svg";
 const PALETTE = ["#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
                  "#14b8a6", "#f43f5e", "#84cc16", "#6366f1", "#eab308", "#06b6d4"];
-const ART_ICONS = { chart: "📊", infographic: "🪧", spreadsheet: "📋" };
+const ART_ICONS = { chart: "📊", infographic: "🪧", spreadsheet: "📋", mindgraph: "🧠" };
+const SVG_RENDERERS = {
+  chart: renderChart,
+  infographic: renderInfographic,
+  mindgraph: renderMindGraph,
+};
 
 function svgEl(tag, attrs = {}, parent = null) {
   const el = document.createElementNS(SVGNS, tag);
@@ -854,6 +873,155 @@ function renderInfographic(spec) {
   return svg;
 }
 
+function renderMindGraph(spec) {
+  // Radial layout: root at centre, branches on a ring, children fanned out
+  // within their branch's angular slice. Deterministic — no physics engine.
+  const W = 1040, H = 800, cx = W / 2;
+  const cy = H / 2 + 14;          // nudge down so the top ring clears the title
+  const BRANCH_R = 165, CHILD_R = 288;
+  // Neighbouring children collide once their pills get wide, so walk them
+  // through three radii instead of sitting them all on one ring.
+  const RING_STAGGER = 30;
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, xmlns: SVGNS });
+  svgEl("rect", { x: 0, y: 0, width: W, height: H, fill: "#ffffff" }, svg);
+  svgText(svg, cx, 30, spec.title, {
+    "text-anchor": "middle", "font-size": 18, "font-weight": 700 });
+
+  const edges = svgEl("g", {}, svg);
+  const nodes = svgEl("g", {}, svg);
+
+  const clip = (text, maxChars) =>
+    text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
+  const pillSize = (text, size) => ({
+    w: Math.max(46, text.length * size * 0.58 + 18),
+    h: size + 14,
+  });
+
+  const drawPill = (node, { fill, textColor, size, bold }) => {
+    svgEl("rect", { x: node.x - node.w / 2, y: node.y - node.h / 2,
+                    width: node.w, height: node.h, rx: node.h / 2,
+                    fill, stroke: "rgba(15,27,45,0.14)" }, nodes);
+    const t = svgText(nodes, node.x, node.y + size * 0.35, node.text, {
+      "text-anchor": "middle", "font-size": size, fill: textColor });
+    if (bold) t.setAttribute("font-weight", "700");
+    const title = svgEl("title", {}, t);
+    title.textContent = node.full;      // untruncated label on hover
+  };
+
+  // ---- 1. place branches and children ----
+  const branches = spec.branches;
+  const positions = new Map();          // label -> node (for cross-links)
+  const branchNodes = [];
+  const childNodes = [];
+  const start = -Math.PI / 2;           // first branch straight up
+
+  branches.forEach((branch, bi) => {
+    const angle = start + (bi / branches.length) * 2 * Math.PI;
+    const text = clip(branch.label, 22);
+    const node = {
+      text, full: branch.label, colour: PALETTE[bi % PALETTE.length],
+      x: cx + BRANCH_R * Math.cos(angle), y: cy + BRANCH_R * Math.sin(angle),
+      ...pillSize(text, 12),
+    };
+    branchNodes.push(node);
+    positions.set(branch.label, node);
+
+    const slice = (2 * Math.PI) / branches.length;
+    const n = branch.children.length;
+    branch.children.forEach((child, ci) => {
+      const offset = n === 1 ? 0 : (ci / (n - 1) - 0.5) * slice * 0.78;
+      const a = angle + offset;
+      const r = CHILD_R + (ci % 3) * RING_STAGGER;
+      const ctext = clip(child, 32);
+      const cnode = {
+        text: ctext, full: child, parent: node, a, r,
+        x: cx + r * Math.cos(a), y: cy + r * Math.sin(a),
+        ...pillSize(ctext, 11),
+      };
+      childNodes.push(cnode);
+      positions.set(child, cnode);
+    });
+  });
+
+  // ---- 2. resolve leftover collisions by pushing the outer pill further out ----
+  const overlaps = (a, b) =>
+    Math.abs(a.x - b.x) < (a.w + b.w) / 2 + 6 &&
+    Math.abs(a.y - b.y) < (a.h + b.h) / 2 + 4;
+
+  for (let pass = 0; pass < 24; pass++) {
+    let moved = false;
+    for (let i = 0; i < childNodes.length; i++) {
+      for (let j = i + 1; j < childNodes.length; j++) {
+        const a = childNodes[i], b = childNodes[j];
+        if (!overlaps(a, b)) continue;
+        const outer = a.r >= b.r ? a : b;
+        outer.r += 14;
+        outer.x = cx + outer.r * Math.cos(outer.a);
+        outer.y = cy + outer.r * Math.sin(outer.a);
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+
+  // Keep everything inside the canvas after the pushes.
+  let maxReach = 0;
+  for (const n of childNodes) {
+    maxReach = Math.max(maxReach,
+      Math.abs(n.x - cx) + n.w / 2 + 12, (Math.abs(n.y - cy) + n.h / 2 + 12) * (W / H));
+  }
+  const limit = W / 2;
+  if (maxReach > limit) {
+    const k = limit / maxReach;
+    for (const n of childNodes) {
+      n.x = cx + (n.x - cx) * k;
+      n.y = cy + (n.y - cy) * k;
+    }
+  }
+
+  // ---- 3. edges, then cross-links, then nodes on top ----
+  for (const b of branchNodes) {
+    svgEl("path", {
+      d: `M ${cx} ${cy} Q ${(cx + b.x) / 2 + (b.y - cy) * 0.12} ${(cy + b.y) / 2 - (b.x - cx) * 0.12} ${b.x} ${b.y}`,
+      fill: "none", stroke: b.colour, "stroke-width": 2.4, opacity: 0.75,
+    }, edges);
+  }
+  for (const c of childNodes) {
+    svgEl("path", {
+      d: `M ${c.parent.x} ${c.parent.y} Q ${(c.parent.x + c.x) / 2} ${(c.parent.y + c.y) / 2} ${c.x} ${c.y}`,
+      fill: "none", stroke: c.parent.colour, "stroke-width": 1.5, opacity: 0.5,
+    }, edges);
+  }
+
+  for (const link of spec.links || []) {
+    const a = positions.get(link.from), b = positions.get(link.to);
+    if (!a || !b) continue;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    const dx = mx - cx, dy = my - cy, len = Math.hypot(dx, dy) || 1;
+    const qx = mx + (dx / len) * 42, qy = my + (dy / len) * 42;
+    svgEl("path", { d: `M ${a.x} ${a.y} Q ${qx} ${qy} ${b.x} ${b.y}`,
+                    fill: "none", stroke: "#5f7390", "stroke-width": 1.3,
+                    "stroke-dasharray": "5 4", opacity: 0.75 }, edges);
+    if (link.label) {
+      svgText(edges, qx, qy - 4, link.label, {
+        "text-anchor": "middle", "font-size": 10, fill: "#5f7390" });
+    }
+  }
+
+  for (const c of childNodes) {
+    drawPill(c, { fill: "#f4f7fc", textColor: "#1f2430", size: 11, bold: false });
+  }
+  for (const b of branchNodes) {
+    drawPill(b, { fill: b.colour, textColor: "#ffffff", size: 12, bold: true });
+  }
+  const rootText = clip(spec.root, 26);
+  drawPill({ text: rootText, full: spec.root, x: cx, y: cy, ...pillSize(rootText, 14) },
+           { fill: "#1f2430", textColor: "#ffffff", size: 14, bold: true });
+
+  return svg;
+}
+
 function downloadBlob(content, filename, type) {
   const url = URL.createObjectURL(new Blob([content], { type }));
   const a = document.createElement("a");
@@ -874,8 +1042,8 @@ function showArtifact(a) {
   body.innerHTML = "";
   actions.innerHTML = "";
 
-  if (a.kind === "chart" || a.kind === "infographic") {
-    const svg = a.kind === "chart" ? renderChart(a.spec) : renderInfographic(a.spec);
+  if (SVG_RENDERERS[a.kind]) {
+    const svg = SVG_RENDERERS[a.kind](a.spec);
     body.appendChild(svg);
     const dl = document.createElement("button");
     dl.type = "button";
@@ -969,7 +1137,10 @@ function updateStudioEmpty() {
   $("#studio-empty").style.display = empty ? "block" : "none";
 }
 
-const KIND_LABELS = { chart: "Chart", infographic: "Infographic", spreadsheet: "Spreadsheet" };
+const KIND_LABELS = {
+  chart: "Chart", infographic: "Infographic",
+  spreadsheet: "Spreadsheet", mindgraph: "Mind Graph",
+};
 for (const btn of document.querySelectorAll(".artifact-buttons button")) {
   btn.addEventListener("click", async () => {
     if (!state.current || btn.disabled) return;

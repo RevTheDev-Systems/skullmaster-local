@@ -95,6 +95,7 @@ def _seed(client, nb_id):
     ("chart", "Mock Chart"),
     ("infographic", "Mock Infographic"),
     ("spreadsheet", "Mock Table"),
+    ("mindgraph", "Mock Mind Graph"),
 ])
 def test_artifact_generation(client, notebook, kind, title):
     _seed(client, notebook["id"])
@@ -157,6 +158,47 @@ def test_validate_chart_spec_rejects_bad_shapes():
                                                  "labels": ["a", "b"], "values": [1]})
     with pytest.raises(studio.StudioError):
         studio._validate_artifact_spec("chart", {"error": "no numeric data"})
+
+
+def test_mindgraph_generation_drops_dangling_links(client, notebook):
+    """Links whose endpoints aren't real nodes can't be drawn, so they're pruned."""
+    _seed(client, notebook["id"])
+    spec = client.post(f"/api/notebooks/{notebook['id']}/artifacts",
+                       json={"kind": "mindgraph"}).json()["spec"]
+    assert spec["root"] == "Meridian Array"
+    assert [b["label"] for b in spec["branches"]] == ["Output", "Site", "Cost"]
+    assert spec["links"] == [{"from": "1.2 GW", "to": "$940M", "label": "drives"}]
+
+
+def test_validate_mindgraph_rejects_bad_shapes():
+    with pytest.raises(ValueError):   # no root
+        studio._validate_artifact_spec("mindgraph", {
+            "title": "t", "root": "  ",
+            "branches": [{"label": "b", "children": ["c"]}]})
+    with pytest.raises(ValueError):   # too few branches
+        studio._validate_artifact_spec("mindgraph", {
+            "title": "t", "root": "r", "branches": [{"label": "b", "children": ["c"]}]})
+    with pytest.raises(ValueError):   # childless branch
+        studio._validate_artifact_spec("mindgraph", {
+            "title": "t", "root": "r",
+            "branches": [{"label": "a", "children": ["c"]}, {"label": "b", "children": []}]})
+    with pytest.raises(studio.StudioError):
+        studio._validate_artifact_spec("mindgraph", {"error": "not enough material"})
+
+
+def test_validate_mindgraph_caps_and_trims():
+    spec = studio._validate_artifact_spec("mindgraph", {
+        "title": "t", "root": " Root ",
+        "branches": [
+            {"label": " A ", "children": [f"c{i}" for i in range(9)]},
+            {"label": "B", "children": ["x", "  ", "y"]},
+        ],
+        "links": [{"from": "c0", "to": "x", "label": "a much longer label than allowed"}],
+    })
+    assert spec["root"] == "Root" and spec["branches"][0]["label"] == "A"
+    assert len(spec["branches"][0]["children"]) == 6      # capped
+    assert spec["branches"][1]["children"] == ["x", "y"]  # blanks dropped
+    assert len(spec["links"][0]["label"]) <= 20           # truncated
 
 
 def test_validate_spreadsheet_pads_rows():

@@ -11,7 +11,8 @@ via [Ollama](https://ollama.com). No cloud APIs, no telemetry, no tracking.
 - **Closed-world RAG chat** — answers come ONLY from your sources; off-corpus questions are declined instead of hallucinated
 - **Inline citations** — every claim carries a clickable `[n]` chip that opens the exact source passage (with page numbers for PDFs, timestamps for media)
 - **Audio Overview** — a two-host podcast conversation about your sources, synthesized with a local TTS model, playable and downloadable in the UI
-- **Charts, infographics & spreadsheets** — Studio generates grounded artifacts from your sources: bar/line/pie charts and infographics (downloadable as SVG) and extracted data tables (downloadable as XLSX/CSV); numbers are validated to come from the sources, and the model refuses when the notebook has no usable data
+- **Charts, infographics, spreadsheets & mind graphs** — Studio generates grounded artifacts from your sources: bar/line/pie charts, infographics, and mind graphs (downloadable as SVG), plus extracted data tables (downloadable as XLSX/CSV); numbers are validated to come from the sources, and the model refuses when the notebook has no usable data
+- **Mind Graph** — maps a notebook's ideas as a radial concept graph: central topic, colour-coded theme branches, specific concepts, and dashed cross-links for relationships that span branches
 - **Persistent** — notebooks, sources, chat history, audio overviews, and artifacts survive refreshes and restarts
 - **Password-protected** — a sign-in screen guards every route and API endpoint; the password is stored only as a salted PBKDF2 hash on this machine
 - **Themed UI** — dark by default with a light theme one click away, and a mobile layout with a bottom tab bar
@@ -190,6 +191,7 @@ app/
     chart_spec.txt        grounded chart extraction (bar/line/pie JSON)
     infographic_spec.txt  grounded infographic extraction
     spreadsheet_spec.txt  grounded tabular-data extraction
+    mindgraph_spec.txt    grounded concept map (root/branches/links JSON)
   ingest.py        PDF (PyMuPDF), DOCX (python-docx), XLSX (openpyxl), text,
                    video/audio transcription (Whisper), hardened URL fetch
   chunker.py       paragraph-packing chunker (~800 tok, overlap), page metadata

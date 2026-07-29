@@ -59,6 +59,21 @@ class MockLLM:
                                "stats": [{"value": "42", "label": "answer"}],
                                "sections": [{"heading": "H", "points": ["p1", "p2"]}],
                                "source_note": "mock sources"})
+        if "knowledge cartographer" in system:
+            return json.dumps({
+                "title": "Mock Mind Graph",
+                "root": "Meridian Array",
+                "branches": [
+                    {"label": "Output", "children": ["1.2 GW", "2340 GWh"]},
+                    {"label": "Site", "children": ["Atacama Desert", "14 km²"]},
+                    {"label": "Cost", "children": ["$940M"]},
+                ],
+                "links": [
+                    {"from": "1.2 GW", "to": "$940M", "label": "drives"},
+                    {"from": "ghost node", "to": "1.2 GW", "label": "invalid"},
+                ],
+                "source_note": "mock sources",
+            })
         if "data-extraction" in system:
             return json.dumps({"title": "Mock Table",
                                "columns": ["Name", "Value"],

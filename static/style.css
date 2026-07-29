@@ -274,8 +274,9 @@ button:focus-visible, .btn:focus-visible, select:focus-visible, input:focus-visi
 .studio-stack { display: flex; flex-direction: column; gap: 10px; }
 .studio-btn { width: 100%; text-align: left; }
 .studio-scroll { flex: 1; display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
-.artifact-buttons { margin-top: 2px; }
-.artifact-buttons button { flex: 1; }
+/* four artifact kinds — a 2x2 grid keeps labels readable in the narrow panel */
+.artifact-buttons { margin-top: 2px; display: grid; grid-template-columns: 1fr 1fr; }
+.artifact-buttons button { flex: 1; min-width: 0; }
 #artifact-list li, #audio-list li { padding: 12px 13px; }
 #audio-list li { display: flex; flex-direction: column; gap: 8px; }
 .audio-title { font-weight: 700; }
@@ -365,7 +366,8 @@ button:focus-visible, .btn:focus-visible, select:focus-visible, input:focus-visi
   .topbar, .panel { border-radius: 22px; }
   .topbar { padding: 16px; }
   .workspace-controls, .status-controls, .workspace-actions, .artifact-buttons, #chat-form, .url-row { width: 100%; }
-  .workspace-actions, .artifact-buttons { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .workspace-actions { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .artifact-buttons { grid-template-columns: repeat(2, 1fr); }
   #chat-form, .url-row { grid-template-columns: 1fr; display: grid; }
   .msg { max-width: 100%; }
   #toasts { right: 14px; left: 14px; bottom: 96px; max-width: none; }

@@ -152,6 +152,7 @@ ARTIFACT_PROMPTS = {
     "chart": "chart_spec",
     "infographic": "infographic_spec",
     "spreadsheet": "spreadsheet_spec",
+    "mindgraph": "mindgraph_spec",
 }
 
 
@@ -187,6 +188,37 @@ def _validate_artifact_spec(kind: str, spec: dict) -> dict:
             if not (isinstance(sec, dict) and sec.get("heading")
                     and isinstance(sec.get("points"), list) and sec["points"]):
                 raise ValueError("each section needs heading and points")
+
+    elif kind == "mindgraph":
+        root, branches = spec.get("root"), spec.get("branches")
+        if not isinstance(root, str) or not root.strip():
+            raise ValueError("mind graph needs a root topic")
+        if not isinstance(branches, list) or not 2 <= len(branches) <= 8:
+            raise ValueError("mind graph needs 2-8 branches")
+        labels = {root.strip()}
+        clean_branches = []
+        for b in branches:
+            if not (isinstance(b, dict) and isinstance(b.get("label"), str) and b["label"].strip()):
+                raise ValueError("each branch needs a label")
+            children = [str(c).strip() for c in (b.get("children") or []) if str(c).strip()]
+            if not children:
+                raise ValueError(f"branch {b['label']!r} has no children")
+            clean_branches.append({"label": b["label"].strip(), "children": children[:6]})
+            labels.add(b["label"].strip())
+            labels.update(children[:6])
+        spec["root"] = root.strip()
+        spec["branches"] = clean_branches
+        # Drop cross-links that don't resolve to real nodes — the renderer can
+        # only draw an edge between nodes it actually placed.
+        links = []
+        for link in spec.get("links") or []:
+            if not isinstance(link, dict):
+                continue
+            src, dst = str(link.get("from", "")).strip(), str(link.get("to", "")).strip()
+            if src in labels and dst in labels and src != dst:
+                links.append({"from": src, "to": dst,
+                              "label": str(link.get("label", "")).strip()[:20]})
+        spec["links"] = links[:8]
 
     elif kind == "spreadsheet":
         cols, rows = spec.get("columns"), spec.get("rows")
