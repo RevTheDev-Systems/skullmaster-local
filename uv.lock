@@ -1456,6 +1456,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "faster-whisper" },
+    { name = "httpx" },
     { name = "kokoro-onnx" },
     { name = "lancedb" },
     { name = "numpy" },
@@ -1480,6 +1481,7 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "faster-whisper", specifier = ">=1.2.1" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "kokoro-onnx", specifier = ">=0.4" },
     { name = "lancedb", specifier = ">=0.15" },
     { name = "numpy", specifier = ">=1.26" },

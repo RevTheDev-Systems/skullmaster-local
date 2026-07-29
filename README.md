@@ -58,10 +58,36 @@ requires a valid session — including `/health` and every `/api/*` route.
 ## Swapping models (the whole point of the provider layer)
 
 **From the UI:** the header has a model picker listing every chat-capable model
-installed in Ollama. Switching takes effect immediately and is remembered across
-restarts (stored in the `settings` table, overriding the `.env` default). The ⟳
-button re-reads the model list and readiness. Embedding-only models are filtered
-out of the picker, since they can't answer chat.
+from **both** engines — Ollama and, when available, MLX. Switching takes effect
+immediately and is remembered across restarts (stored in the `settings` table,
+overriding the `.env` default). The ⟳ button re-reads the model list and
+readiness. Embedding-only models are filtered out, since they can't answer chat.
+
+### MLX models (Apple silicon)
+
+Run an OpenAI-compatible MLX server and its models appear in the picker
+automatically — no configuration needed:
+
+```bash
+mlx_lm.server --host 127.0.0.1 --port 8080
+```
+
+- Models are discovered from your local HuggingFace cache via `/v1/models`.
+  Image, TTS, and embedding models are filtered out of the picker.
+- **Reasoning models are fully supported.** MLX streams chain-of-thought in a
+  separate `reasoning` field, which is discarded — only the answer reaches the
+  UI, so citations stay clean. This mirrors Ollama's thinking mode.
+- The first message after switching loads the model into memory and can take a
+  while for large models; later messages are fast.
+- **Chat only.** `mlx_lm.server` has no `/v1/embeddings`, so embeddings always
+  stay on Ollama. That's deliberate: it keeps your existing vector index valid
+  no matter which chat model you pick.
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `MLX_ENABLED` | `auto` (use it if the endpoint answers), `true`, or `false` | `auto` |
+| `MLX_BASE_URL` | OpenAI-compatible endpoint (mlx_lm.server, LM Studio, …) | `http://127.0.0.1:8080/v1` |
+| `MLX_REQUEST_TIMEOUT` | Connect timeout in seconds (no read timeout, so long generations aren't cut off) | `30` |
 
 Embedding and TTS models stay in `.env` on purpose: changing `EMBED_MODEL`
 invalidates every stored vector, so it shouldn't be a one-click action.
@@ -76,7 +102,7 @@ invalidates every stored vector, so it shouldn't be a one-click action.
 | `TTS_VOICE_A/B` | The two podcast hosts | kokoro: `af_heart`/`am_michael`; say: `Samantha`/`Daniel` |
 | `STT_MODEL` | Video/audio transcription | `whisper-tiny` … `whisper-large-v3` (faster-whisper; default `whisper-base`) |
 | `OLLAMA_BASE_URL` | LLM backend endpoint | `http://localhost:11434` |
-| `LLM_PROVIDER` | Backend implementation | `ollama` (an OpenAI-compatible provider can be added in `app/providers/`) |
+| `LLM_PROVIDER` | Backend implementation | `ollama` (Ollama + auto-detected MLX; further OpenAI-compatible backends drop into `app/providers/`) |
 | `MAX_UPLOAD_MB` / `MEDIA_MAX_UPLOAD_MB` | Upload caps | documents 50MB / media 1GB by default |
 
 **Note:** if you change `EMBED_MODEL`, re-ingest your sources — embeddings from
@@ -152,8 +178,10 @@ There is no telemetry, analytics, or cloud logging of any kind.
 app/
   config.py        env-driven config — models are configured, never hardcoded
   providers/       the ONLY place that talks to model backends
-    base.py          LLMProvider / TTSProvider interfaces
+    base.py          LLMProvider / TTSProvider / STTProvider interfaces
+    routing.py       routes chat to the backend owning the selected model
     ollama_provider.py  chat + embeddings (thinking tokens stripped)
+    mlx_provider.py  MLX chat via an OpenAI-compatible endpoint (reasoning discarded)
     tts_kokoro.py    Kokoro-82M via kokoro-onnx (auto-downloads weights)
     tts_say.py       macOS `say` fallback
   prompts/         the two quality-critical prompts, as editable text files

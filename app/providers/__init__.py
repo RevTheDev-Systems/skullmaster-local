@@ -7,10 +7,13 @@ from .base import LLMProvider, STTProvider, TTSProvider
 
 @lru_cache(maxsize=1)
 def get_llm() -> LLMProvider:
-    if LLM_PROVIDER == "ollama":
-        from .ollama_provider import OllamaProvider
-        return OllamaProvider()
-    raise ValueError(f"Unknown LLM_PROVIDER: {LLM_PROVIDER!r} (supported: ollama)")
+    # "ollama" keeps its name for compatibility, but the returned provider also
+    # offers MLX chat models when an MLX endpoint is available (see routing.py).
+    if LLM_PROVIDER in ("ollama", "routing", "mlx"):
+        from .routing import RoutingProvider
+        return RoutingProvider()
+    raise ValueError(
+        f"Unknown LLM_PROVIDER: {LLM_PROVIDER!r} (supported: ollama, mlx, routing)")
 
 
 @lru_cache(maxsize=1)

@@ -72,6 +72,14 @@ def main() -> int:
         ok &= check(f"tts ({TTS_MODEL})", tts.get("ready", False), tts.get("detail", ""),
                     "set TTS_MODEL=kokoro (portable) or TTS_MODEL=say (macOS) in .env")
 
+    mlx = llm.get("mlx")
+    if mlx:
+        print("\nMLX backend (optional)")
+        ok &= check("mlx endpoint", mlx.get("reachable", False),
+                    f"{mlx.get('base_url')} — {mlx.get('detail')}",
+                    "start it with: mlx_lm.server --host 127.0.0.1 --port 8080, "
+                    "or set MLX_ENABLED=false in .env")
+
     print("\nSTT backend (video/audio transcription)")
     stt = get_stt().status()
     if "download" in stt.get("detail", ""):

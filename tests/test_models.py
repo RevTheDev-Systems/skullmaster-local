@@ -40,6 +40,72 @@ class _FakeClient:
         return gen()
 
 
+def test_qualified_model_ids_round_trip():
+    """Ollama names contain ':' and MLX names contain '/', so the separator has
+    to be unambiguous — and bare names must still resolve (older settings)."""
+    from app.providers.routing import MLX, OLLAMA, qualify, split
+
+    assert split(qualify(OLLAMA, "qwen3:30b")) == (OLLAMA, "qwen3:30b")
+    assert split(qualify(MLX, "mlx-community/Qwen3.6-35B-A3B-8bit")) == (
+        MLX, "mlx-community/Qwen3.6-35B-A3B-8bit")
+    assert split("qwen3:30b") == (OLLAMA, "qwen3:30b")       # legacy setting
+    assert split("weird::name::x") == (OLLAMA, "weird::name::x")  # unknown prefix
+
+
+def test_mlx_filters_non_chat_models():
+    from app.providers.mlx_provider import _looks_like_chat_model
+
+    assert _looks_like_chat_model("mlx-community/Qwen3.6-35B-A3B-8bit")
+    assert not _looks_like_chat_model("black-forest-labs/FLUX.2-dev")
+    assert not _looks_like_chat_model("mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit")
+
+
+def test_mlx_stream_discards_reasoning():
+    """Thinking models stream chain-of-thought in a `reasoning` delta; only
+    `content` may reach the user."""
+    from app.providers.mlx_provider import MLXProvider
+
+    sse = [
+        'data: {"choices":[{"delta":{"role":"assistant"}}]}',
+        'data: {"choices":[{"delta":{"reasoning":"Let me think hard..."}}]}',
+        'data: {"choices":[{"delta":{"content":"The answer"}}]}',
+        'data: {"choices":[{"delta":{"reasoning":"more hidden thought"}}]}',
+        'data: {"choices":[{"delta":{"content":" is 42 [1]."}}]}',
+        "data: [DONE]",
+    ]
+
+    class _Response:
+        status_code = 200
+
+        def iter_lines(self):
+            return iter(sse)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def stream(self, *a, **kw):
+            return _Response()
+
+    p = MLXProvider(base_url="http://mlx.test/v1")
+    p.set_chat_model("thinker")
+    import app.providers.mlx_provider as mod
+    original, mod.httpx.Client = mod.httpx.Client, lambda **kw: _Client()
+    try:
+        assert "".join(p._chat_stream([])) == "The answer is 42 [1]."
+    finally:
+        mod.httpx.Client = original
+
+
 def test_chat_falls_back_when_model_rejects_thinking():
     """Regression: the lazy stream made the old try/except unreachable, so any
     model without a thinking mode (phi4, llama3.1) failed outright."""

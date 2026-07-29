@@ -35,6 +35,30 @@ TTS_VOICE_B = os.environ.get("TTS_VOICE_B", "am_michael")
 # (tiny | base | small | medium | large-v3). Weights download once on first use.
 STT_MODEL = os.environ.get("STT_MODEL", "whisper-base")
 
+# ---- MLX chat backend (optional, Apple silicon) ----
+# Any OpenAI-compatible local endpoint; `mlx_lm.server` by default. When enabled,
+# its models appear alongside Ollama's in the model picker. Chat only —
+# embeddings always stay on Ollama.
+MLX_BASE_URL = os.environ.get("MLX_BASE_URL", "http://127.0.0.1:8080/v1")
+MLX_REQUEST_TIMEOUT = float(os.environ.get("MLX_REQUEST_TIMEOUT", "30"))
+# auto (use it when the endpoint answers) | true (always) | false (never)
+_mlx_mode = os.environ.get("MLX_ENABLED", "auto").strip().lower()
+
+
+def _mlx_endpoint_alive() -> bool:
+    import urllib.error
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"{MLX_BASE_URL.rstrip('/')}/models", timeout=2) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+MLX_ENABLED = _mlx_mode in ("1", "true", "yes") or (
+    _mlx_mode == "auto" and _mlx_endpoint_alive()
+)
+
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8501"))
 

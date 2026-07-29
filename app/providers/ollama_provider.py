@@ -96,12 +96,15 @@ class OllamaProvider:
         self.chat_model = name
 
     def ensure_models(self) -> dict:
+        return self.ensure_models_for([self.chat_model, self.embed_model])
+
+    def ensure_models_for(self, wanted: list[str]) -> dict:
         result = {}
         try:
             installed = self._installed()
         except Exception as e:
             return {"error": f"Ollama unreachable at {OLLAMA_BASE_URL}: {e}"}
-        for model in (self.chat_model, self.embed_model):
+        for model in wanted:
             names = {model, f"{model}:latest"}
             if names & installed:
                 result[model] = "ready"

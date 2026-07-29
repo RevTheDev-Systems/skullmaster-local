@@ -75,6 +75,8 @@ $("#sign-out").addEventListener("click", async () => {
 });
 
 // ---------- Models & readiness ----------
+const ENGINE_NAMES = { ollama: "Ollama", mlx: "MLX" };
+
 function setStatus(state, detail) {
   const dot = $("#status-dot");
   dot.classList.toggle("ok", state === "ok");
@@ -115,12 +117,30 @@ async function loadModels({ notify = false } = {}) {
     if (models) {
       const chatModels = models.models.filter((m) => m.can_chat);
       select.innerHTML = "";
+
+      // Group by engine only when more than one is available.
+      const byBackend = new Map();
       for (const m of chatModels) {
-        const opt = document.createElement("option");
-        opt.value = m.name;
-        opt.textContent = m.name;
-        select.appendChild(opt);
+        const key = m.backend || "ollama";
+        if (!byBackend.has(key)) byBackend.set(key, []);
+        byBackend.get(key).push(m);
       }
+      for (const [key, list] of byBackend) {
+        const parent = byBackend.size > 1
+          ? Object.assign(document.createElement("optgroup"), { label: ENGINE_NAMES[key] || key })
+          : select;
+        for (const m of list) {
+          const opt = document.createElement("option");
+          opt.value = m.name;
+          // MLX ids carry an org prefix ("mlx-community/…") that adds no meaning here.
+          opt.textContent = (m.label || m.name).split("/").pop();
+          opt.title = m.label || m.name;
+          opt.dataset.backend = key;
+          parent.appendChild(opt);
+        }
+        if (parent !== select) select.appendChild(parent);
+      }
+
       select.value = models.chat_model;
       select.disabled = chatModels.length === 0;
       state.chatModel = models.chat_model;
@@ -155,13 +175,17 @@ $("#health-refresh").addEventListener("click", () => loadModels({ notify: true }
 
 $("#model-select").addEventListener("change", async (e) => {
   const name = e.target.value;
+  const option = e.target.selectedOptions[0];
+  const label = option?.textContent || name;
   const previous = state.chatModel;
   e.target.disabled = true;
   try {
     await api("/api/models/chat", { method: "POST", body: JSON.stringify({ name }) });
     state.chatModel = name;
-    setStatus("ok", `Ready · ${name}`);
-    toast(`Now using ${name}`, "success");
+    setStatus("ok", `Ready · ${label}`);
+    toast(option?.dataset.backend === "mlx"
+      ? `Now using ${label} — your first message loads it into memory`
+      : `Now using ${label}`, "success");
   } catch (err) {
     e.target.value = previous || "";
     toast(`Could not switch model: ${err.message}`);
