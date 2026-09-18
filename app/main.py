@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import re
+import shutil
 import threading
 import uuid
 from contextlib import asynccontextmanager
@@ -414,6 +415,80 @@ def tools_run(body: ToolIn):
     except tools.ToolError as e:
         raise HTTPException(422, str(e))
     return {"name": body.name, "args": body.args, "result": result}
+
+
+# ---------- First-run setup ----------
+
+
+@app.get("/api/setup")
+def setup_checklist():
+    """Actionable setup checklist: what's ready, and the command to fix the rest."""
+    from . import ocr, vision
+    from .config import CHAT_MODEL, EMBED_MODEL
+
+    llm = get_llm().status()
+    items = [
+        {
+            "key": "ollama",
+            "label": "Ollama is running",
+            "required": True,
+            "ok": bool(llm.get("reachable")),
+            "hint": "Install and start Ollama, then keep it running.",
+            "command": "ollama serve",
+        },
+        {
+            "key": "chat_model",
+            "label": f"Chat model ({CHAT_MODEL})",
+            "required": True,
+            "ok": bool(llm.get("chat_model_ready")),
+            "hint": "Pull the chat model (see the README for size options).",
+            "command": f"ollama pull {CHAT_MODEL}",
+        },
+        {
+            "key": "embed_model",
+            "label": f"Embedding model ({EMBED_MODEL})",
+            "required": True,
+            "ok": bool(llm.get("embed_model_ready")),
+            "hint": "Pull the embedding model.",
+            "command": f"ollama pull {EMBED_MODEL}",
+        },
+        {
+            "key": "tts",
+            "label": "Text-to-speech (Audio Overviews)",
+            "required": False,
+            "ok": bool(get_tts().status().get("ready")),
+            "hint": "Kokoro downloads weights on first use; macOS can use `say`.",
+            "command": "uv sync   # or set TTS_MODEL=say on macOS",
+        },
+        {
+            "key": "ffmpeg",
+            "label": "ffmpeg (Video Overviews)",
+            "required": False,
+            "ok": shutil.which("ffmpeg") is not None,
+            "hint": "Optional — needed to render narrated video.",
+            "command": "brew install ffmpeg",
+        },
+        {
+            "key": "ocr",
+            "label": "OCR (scanned PDFs)",
+            "required": False,
+            "ok": ocr.available(),
+            "hint": "Optional — reads PDFs with no text layer.",
+            "command": "brew install tesseract && uv sync --extra ocr",
+        },
+        {
+            "key": "vision",
+            "label": "Vision (diagrams & images)",
+            "required": False,
+            "ok": vision.available(),
+            "hint": "Optional — a vision model reads charts/images.",
+            "command": "ollama pull qwen2.5vl:7b",
+        },
+    ]
+    return {
+        "ready": all(i["ok"] for i in items if i["required"]),
+        "items": items,
+    }
 
 
 # ---------- Notebooks ----------

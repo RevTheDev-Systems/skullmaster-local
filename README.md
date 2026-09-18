@@ -102,7 +102,9 @@ On first boot the app checks the configured models and pulls any that are missin
 (progress is logged; startup won't silently hang). Kokoro TTS weights (~340 MB)
 download once on the first Audio Overview; Whisper weights download on the first
 video/audio transcription. The first screen asks you to create a password (see
-**Signing in** below).
+**Signing in** below). If something required isn't ready (Ollama down, a model
+missing), the **⚙ Setup** button shows a checklist with a copy-paste fix for
+each item; optional capabilities (ffmpeg, OCR, vision) are listed too.
 
 `HOST`/`PORT` come from `.env` and are the single source of truth: the
 `python -m app` entry point, `scripts/launcher.sh`, and its health check all read

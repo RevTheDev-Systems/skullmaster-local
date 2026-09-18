@@ -64,7 +64,7 @@ button { cursor: pointer; }
   gap: 18px;
 }
 
-.topbar, .panel, #modal, #media-modal, #artifact-modal, #search-modal, .mobile-nav {
+.topbar, .panel, #modal, #media-modal, #artifact-modal, #search-modal, #setup-modal, .mobile-nav {
   background: var(--panel);
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
@@ -303,7 +303,7 @@ button:focus-visible, .btn:focus-visible, select:focus-visible, input:focus-visi
   display: flex; align-items: center; justify-content: center;
   padding: 18px;
 }
-#modal, #media-modal, #artifact-modal, #search-modal {
+#modal, #media-modal, #artifact-modal, #search-modal, #setup-modal {
   width: min(880px, 100%);
   max-height: min(88vh, 860px);
   border-radius: 24px;
@@ -316,7 +316,7 @@ button:focus-visible, .btn:focus-visible, select:focus-visible, input:focus-visi
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   font-weight: 700;
 }
-#modal-close, #media-close, #artifact-close, #search-close {
+#modal-close, #media-close, #artifact-close, #search-close, #setup-close {
   background: transparent; border: none; color: var(--muted); padding: 7px 9px;
 }
 #modal-body, #artifact-body { padding: 18px; overflow: auto; }
@@ -369,6 +369,18 @@ button:focus-visible, .btn:focus-visible, select:focus-visible, input:focus-visi
 .graph-canvas:active { cursor: grabbing; }
 .graph-canvas svg { transform-origin: center center; will-change: transform; }
 .graph-canvas [data-node] { cursor: pointer; }
+
+/* Setup checklist modal */
+#setup-body { padding: 14px 18px 18px; overflow: auto; }
+.setup-item { padding: 10px 12px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel-2); }
+.setup-item.bad { border-color: rgba(239, 68, 68, 0.4); }
+.setup-item.warn { border-color: rgba(245, 158, 11, 0.4); }
+.setup-head { display: flex; align-items: center; gap: 8px; }
+.setup-mark { font-size: 15px; }
+.setup-hint { margin: 6px 0 6px 24px; font-size: 12.5px; color: var(--muted); }
+.setup-cmd { display: flex; align-items: center; gap: 10px; margin-left: 24px; }
+.setup-cmd code { flex: 1; padding: 6px 10px; border-radius: 10px; background: var(--panel-3); overflow-x: auto; }
+.setup-cmd button { padding: 5px 10px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; }
 
 /* Library search modal */
 #search-form { display: flex; gap: 10px; padding: 14px 18px 0; }

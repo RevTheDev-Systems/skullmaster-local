@@ -30,6 +30,17 @@ def test_health_shape(client):
     assert client.get("/api/health").json()["product"] == "SkullMaster iQ"
 
 
+def test_setup_checklist(client):
+    data = client.get("/api/setup").json()
+    keys = {item["key"] for item in data["items"]}
+    assert {"ollama", "chat_model", "embed_model", "tts", "ffmpeg", "ocr", "vision"} <= keys
+    required = [item for item in data["items"] if item["required"]]
+    assert data["ready"] == all(item["ok"] for item in required)
+    assert data["ready"] is True  # mock providers report ready
+    for item in data["items"]:
+        assert {"key", "label", "required", "ok", "hint", "command"} <= set(item)
+
+
 # ---------- notebooks ----------
 
 

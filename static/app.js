@@ -9,6 +9,7 @@ const state = {
   ingestBusy: false,
   chatModel: null,      // active chat model, mirrored from /api/models
 };
+let setupNudged = false;  // only prompt about setup once per page load
 
 // ---------- Toasts ----------
 function toast(message, kind = "error") {
@@ -172,6 +173,10 @@ async function loadModels({ notify = false, refresh = false } = {}) {
     // A fallback (e.g. a saved MLX model while MLX is offline) is not an error,
     // but the user should know which model is actually answering.
     if (models?.warning) toast(models.warning);
+    if (!health.ok && !setupNudged) {
+      setupNudged = true;
+      toast("Setup needed — open ⚙ Setup for the checklist");
+    }
     if (notify) {
       await minSpin;
       toast(health.ok ? `Models refreshed · ${models?.models.length ?? 0} installed`
@@ -1816,6 +1821,64 @@ $("#search-form").addEventListener("submit", async (e) => {
     problem.textContent = err.message;
     box.appendChild(problem);
   }
+});
+
+// ---------- Setup checklist ----------
+async function openSetup() {
+  const body = $("#setup-body");
+  body.innerHTML = '<p class="muted">Checking…</p>';
+  $("#setup-backdrop").hidden = false;
+  try {
+    const data = await api("/api/setup");
+    body.innerHTML = "";
+    for (const item of data.items) {
+      const row = document.createElement("div");
+      row.className = "setup-item" + (item.ok ? " ok" : (item.required ? " bad" : " warn"));
+      const head = document.createElement("div");
+      head.className = "setup-head";
+      const mark = document.createElement("span");
+      mark.className = "setup-mark";
+      mark.textContent = item.ok ? "✅" : (item.required ? "⛔" : "⚠️");
+      const label = document.createElement("strong");
+      label.textContent = item.label;
+      head.append(mark, label);
+      row.appendChild(head);
+      if (!item.ok) {
+        const hint = document.createElement("div");
+        hint.className = "setup-hint";
+        hint.textContent = item.hint;
+        row.appendChild(hint);
+        const cmd = document.createElement("div");
+        cmd.className = "setup-cmd";
+        const code = document.createElement("code");
+        code.textContent = item.command;
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.textContent = "Copy";
+        copy.addEventListener("click", () => {
+          navigator.clipboard?.writeText(item.command).then(
+            () => toast("Copied", "success"), () => {});
+        });
+        cmd.append(code, copy);
+        row.appendChild(cmd);
+      }
+      body.appendChild(row);
+    }
+  } catch (err) {
+    body.innerHTML = "";
+    const problem = document.createElement("p");
+    problem.className = "muted";
+    problem.textContent = err.message;
+    body.appendChild(problem);
+  }
+}
+$("#setup-btn").addEventListener("click", openSetup);
+$("#setup-close").addEventListener("click", () => { $("#setup-backdrop").hidden = true; });
+$("#setup-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "setup-backdrop") $("#setup-backdrop").hidden = true;
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#setup-backdrop").hidden) $("#setup-backdrop").hidden = true;
 });
 
 // ---------- Init ----------

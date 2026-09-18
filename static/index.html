@@ -40,6 +40,7 @@
         <select id="model-select" aria-label="Model" title="Model"></select>
         <div class="model-badge" id="model-badge" role="status" hidden></div>
         <button id="health-refresh" type="button" title="Refresh models" aria-label="Refresh models">⟳</button>
+        <button id="setup-btn" type="button" title="Setup checklist" aria-label="Setup checklist">⚙ Setup</button>
         <button id="theme-toggle" type="button" title="Toggle theme" aria-label="Toggle theme">🌙</button>
         <button id="sign-out" type="button" title="Sign out" aria-label="Sign out">Sign out</button>
       </div>
@@ -201,6 +202,16 @@
       <div id="search-results" aria-live="polite">
         <p class="muted">Search every notebook at once; results open the exact passage.</p>
       </div>
+    </div>
+  </div>
+
+  <div id="setup-backdrop" class="backdrop" hidden>
+    <div id="setup-modal" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+      <div id="modal-header">
+        <span id="setup-title">Setup</span>
+        <button id="setup-close" type="button" aria-label="Close setup">✕</button>
+      </div>
+      <div id="setup-body"></div>
     </div>
   </div>
 
