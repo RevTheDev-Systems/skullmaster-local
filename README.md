@@ -1,12 +1,15 @@
 # 💀 SkullMaster iQ
 
 A fully local, offline NotebookLM-style app: source-grounded chat with inline
-citations and podcast-style Audio Overviews — running entirely on your machine
-via [Ollama](https://ollama.com). No cloud APIs, no telemetry, no tracking.
+citations, cross-notebook research, and grounded Studio output (audio, charts,
+graphs, documents, slides, video) — running entirely on your machine via
+[Ollama](https://ollama.com). No cloud APIs, no telemetry, no tracking.
+
+**Current release: v1.7.0 · 248 automated tests passing · ruff/format/mypy clean.**
 
 ## Features
 
-- **Notebooks & sources** — upload PDF, DOCX, TXT/MD, XLSX, video, or audio files, or add URLs; multiple sources per notebook
+- **Notebooks & sources** — upload PDF, DOCX, XLSX/XLSM, TXT/MD/RST/CSV/TSV/JSON, HTML, images, video, or audio files, or add URLs; multiple sources per notebook
 - **Video & audio sources** — uploads are transcribed locally with Whisper, playable in-app, and fully searchable in chat; media citations carry timestamps and a "Play from" button that seeks the player to the cited moment
 - **Scanned PDFs (optional OCR)** — if a PDF has no text layer and Tesseract is installed, its pages are OCR'd into the normal pipeline; text PDFs are never OCR'd, and without an engine the app behaves as before
 - **Diagrams & images (optional vision)** — image files (`.png .jpg .jpeg .webp .gif .bmp .tiff .tif`) and images embedded in PDFs are transcribed/described by a vision-capable local model (`qwen2.5vl:7b`) into searchable, citable text; citations open a **View image** viewer
@@ -135,6 +138,7 @@ invalidates every stored vector, so it shouldn't be a one-click action.
 | `MAX_UPLOAD_MB` / `MEDIA_MAX_UPLOAD_MB` | Upload caps | documents 50MB / media 1GB by default |
 | `HOST` / `PORT` | Bind address used by `python -m app` and the launcher | `127.0.0.1` / `8501` |
 | `OCR_ENABLED` / `OCR_LANG` / `OCR_MIN_CHARS_PER_PAGE` / `OCR_DPI` | Optional OCR for text-less PDF pages | `auto` / `eng` / `40` / `200` |
+| `TOOL_MAX_ROUNDS` | Tool rounds a research answer may take before it must answer (1–5) | `2` |
 
 **Note:** if you change `EMBED_MODEL`, re-ingest your sources — embeddings from
 different models are not comparable.
@@ -183,10 +187,10 @@ uv run python -m app.diagnostics
 
 Reports PASS/WARN/FAIL for Python and dependencies, configuration, storage
 (with a real write test and free-disk check), SQLite, LanceDB, Ollama and both
-configured models, provider states, MLX (optional), TTS, STT, and whether the
-API server is listening — each with an actionable fix. `/health` (or
-`/api/health`) returns the same readiness as structured JSON. Log categories are
-documented in `docs/observability.md`.
+configured models, provider states, MLX (optional), TTS, STT, OCR (optional),
+vision (optional), and whether the API server is listening — each with an
+actionable fix. `/health` (or `/api/health`) returns the same readiness as
+structured JSON. Log categories are documented in `docs/observability.md`.
 
 ## Local data: where it lives, backup, reset
 
@@ -196,9 +200,9 @@ Everything is stored under `data/` (override with `NLM_DATA_DIR`):
 |---|---|
 | `data/notebooks.db` | SQLite: notebooks, sources, chat messages, audio + artifact metadata |
 | `data/lancedb/` | Vector index (chunk text + embeddings) |
-| `data/uploads/` | Original uploaded files (including video/audio, served for playback) |
+| `data/uploads/` | Original uploaded files (including video/audio/images, served for playback/viewing) |
 | `data/audio/` | Generated Audio Overview WAVs |
-| `data/artifacts/` | Generated spreadsheet .xlsx files |
+| `data/artifacts/` | Generated spreadsheet `.xlsx` files and Video Overview `.mp4` files |
 | `models/` | Local TTS weights (Kokoro) and Whisper STT weights |
 
 - **Back up:** `uv run python -m app.backup create --out ~/backup.zip` — a
@@ -244,6 +248,7 @@ app/
     infographic_spec.txt    grounded infographic extraction
     spreadsheet_spec.txt    grounded tabular-data extraction
     mindgraph_spec.txt      grounded concept map (root/branches/links JSON)
+    comparison_spec.txt     grounded source comparison (agree/differ/adds)
     briefing_spec.txt       grounded briefing document
     study_guide_spec.txt    grounded study guide
     faq_spec.txt            grounded FAQ
@@ -261,7 +266,7 @@ app/
   studio.py        podcast + all grounded artifacts (visual and text) + evidence binding
   slides.py        grounded slide-deck generation + PNG rendering (PyMuPDF)
   video.py         narrated Video Overview: slides + TTS + ffmpeg mux
-  tools.py         controlled local tools (calculator/dates/units/text)
+  tools.py         controlled local tools (calculator/dates/units/text + source-scoped)
   evaluation.py    deterministic RAG benchmark (python -m app.evaluation)
   benchmarks.py    local performance benchmarks (python -m app.benchmarks)
   auth.py          password hashing (PBKDF2), server-side sessions, login throttling
@@ -274,9 +279,10 @@ app/
 static/            three-panel web UI (Sources | Chat | Studio), vanilla JS
   login.html/.css/.js   sign-in and first-run password setup screen
 tests/             pytest unit + integration suite (mock providers)
-evals/             RAG benchmark corpus + committed baseline
-docs/              status, security, performance, backup, naming, browser acceptance,
-                   ingestion matrix, knowledge graph, observability
+evals/             RAG corpus + baseline, chunk sweep, performance baseline
+docs/              status, roadmap, security, performance, tools, vision, slides-video,
+                   backup, naming, observability, browser acceptance, ingestion matrix,
+                   knowledge graph, git history, historical copies, releases/
 data/              runtime state: uploads, LanceDB, SQLite, generated audio/artifacts
 models/            local TTS/STT weights
 ```
@@ -322,6 +328,9 @@ rank fusion.
 - Scanned (image-only) PDFs are OCR'd only if an engine is installed
   (`brew install tesseract`, `uv pip install pytesseract pillow`); otherwise
   they're rejected with a clear message. OCR is never applied to text PDFs.
+- Vision-document understanding needs a vision-capable model
+  (`ollama pull qwen2.5vl:7b`); without one, images fail with a clear message.
+- Video Overview needs `ffmpeg` on PATH; Slides need neither.
 - URL extraction targets article-like pages; heavily scripted pages may yield nothing.
 - Audio Overview generation is synchronous and takes a few minutes; the UI stays
   responsive but the result appears only when finished. Video transcription is
@@ -337,17 +346,21 @@ rank fusion.
 
 ## Status
 
-See `docs/status.md` for the current implemented / experimental / planned /
-out-of-scope inventory. In short: the self-hosted local app is implemented and
-tested; OCR, richer cross-notebook knowledge graphs, and a fuller model
-capability router are planned; video/slides and web search are out of scope.
-The launcher and `.app` are location-independent; repository/brand identity and
-the explicit rename path are in `docs/naming.md`. The post-v1 plan is in
-`docs/roadmap.md`.
+See `docs/status.md` for the implemented / experimental / planned /
+out-of-scope inventory, and `docs/roadmap.md` for the post-v1 plan. In short,
+everything documented is **delivered and tested**: grounded cited chat,
+cross-notebook research, library search, typed and evidence-bound knowledge
+graphs (explorable and cross-notebook), the model capability router, optional
+OCR and vision, Studio (Audio Overview; charts, infographics, spreadsheets, mind
+graphs, source comparison; five text documents; slides; narrated video), a safe
+local tool layer with a bounded multi-step budget, verified backup/restore,
+diagnostics, and engineering gates. The launcher and `.app` are
+location-independent; repository/brand identity is in `docs/naming.md`.
 
-## Future work (intentionally out of scope)
+## Roadmap & out of scope
 
-- Video Overviews and slide decks (separate rendering pipelines, deliberately
-  not bolted onto `studio.py`)
-- Deep Research / web search (the app is closed-world by design)
-- OCR for scanned documents (planned as a capability, never applied by default)
+Optional future work (see `docs/roadmap.md`): local reranking / query expansion
+(gated on a larger evaluation corpus) and a saved standalone graph workspace.
+
+Intentionally out of scope: Deep Research / web search (the app is closed-world
+by design), and any cloud or telemetry.
