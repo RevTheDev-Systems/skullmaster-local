@@ -9,7 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
 PRODUCT_NAME = "SkullMaster iQ"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 
 # ---- Paths ----
 DATA_DIR = Path(os.environ.get("NLM_DATA_DIR", PROJECT_ROOT / "data"))
