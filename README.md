@@ -164,9 +164,12 @@ acceptance is in `docs/browser-acceptance.md`, ingestion coverage in
 uv run python -m app.diagnostics
 ```
 
-Checks storage directories, SQLite, Ollama reachability, both configured models,
-and the TTS backend — and prints an actionable fix for anything that fails.
-`/health` (or `/api/health`) returns the same readiness as structured JSON.
+Reports PASS/WARN/FAIL for Python and dependencies, configuration, storage
+(with a real write test and free-disk check), SQLite, LanceDB, Ollama and both
+configured models, provider states, MLX (optional), TTS, STT, and whether the
+API server is listening — each with an actionable fix. `/health` (or
+`/api/health`) returns the same readiness as structured JSON. Log categories are
+documented in `docs/observability.md`.
 
 ## Local data: where it lives, backup, reset
 

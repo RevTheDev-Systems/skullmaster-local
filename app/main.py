@@ -36,7 +36,13 @@ from .config import (
 from .providers import get_llm, get_stt, get_tts
 from .rag import answer_stream, strip_invalid_citations
 
-logging.basicConfig(level=logging.INFO)
+# Logger names carry the failure category, e.g. app.providers.routing
+# (provider), app.studio (malformed model output), app.rag (retrieval);
+# "skullmaster" covers HTTP-level auth/ingestion/stream failures.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+)
 log = logging.getLogger("skullmaster")
 
 
