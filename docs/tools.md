@@ -39,9 +39,25 @@ POST /api/tools/run             # {"name": "calculator", "args": {"expression": 
 Both require a session. A refused or malformed call returns **422** with a clear
 message.
 
+## Wired into research answers
+
+`POST /api/research` accepts `"use_tools": true` (the chat bar's **🧮 Tools**
+toggle). When enabled, `rag.research_stream` allows **one bounded tool round**:
+
+1. The grounded system prompt gains a strict protocol: reply with *only*
+   `{"tool": "<name>", "args": { ... }}` when a tool is needed, else answer
+   normally.
+2. If a tool call is parsed, it is run through `run_tool`, and the call, args,
+   and result are **logged** (`app.rag`); the trusted result is fed back with an
+   explicit "do not cite it" instruction.
+3. The final answer is then streamed with the usual grounded citations.
+
+If the model answers directly (no tool), that text streams unchanged. Grounding,
+citation validation, and the primary chat path are untouched — tools are strictly
+opt-in.
+
 ## Roadmap
 
-This is the substrate, not a full agent. Deliberate next steps: let the grounded
-answer path optionally *request* a tool through a strict JSON protocol (bounded
-and logged), and add source-scoped tools (e.g. count occurrences across a
-notebook) — all still local, deterministic, and cite-or-refuse.
+Source-scoped tools (e.g. count occurrences across a notebook) and a stricter
+multi-step budget are deliberate future steps, still local, deterministic, and
+cite-or-refuse.

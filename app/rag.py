@@ -1,5 +1,7 @@
 """Grounded chat: hybrid retrieval → strict source-only prompt → streamed answer with [n] citations."""
 
+import json
+import logging
 import re
 from collections.abc import Iterator
 
@@ -7,6 +9,34 @@ from . import db
 from .config import CONTEXT_HISTORY_TURNS, TOP_K, load_prompt
 from .providers import get_llm
 from .store import hybrid_search, hybrid_search_many
+
+log = logging.getLogger(__name__)
+
+# Opt-in tool protocol: at most one local tool per answer, chosen by strict JSON.
+# {tools} is replaced (not .format) because the instruction contains literal braces.
+_TOOL_INSTRUCTION = (
+    "\n\nLOCAL TOOLS: You may use at most ONE local tool before answering. If the "
+    "question needs exact arithmetic, date math, or unit conversion, reply with "
+    'ONLY a JSON object of the form {"tool": "<name>", "args": { ... }} using one '
+    "of the tools below and nothing else. Otherwise answer the question normally "
+    "with citations. Tool results are computed locally and trusted; do not cite "
+    "them to a source.\n\nAvailable tools:\n{tools}"
+)
+
+
+def _parse_tool_call(text: str) -> dict | None:
+    """Parse a strict tool-call object, or None if this is a normal answer."""
+    candidate = strip_think(text).strip()
+    candidate = re.sub(r"^```(?:json)?\s*|\s*```$", "", candidate, flags=re.MULTILINE).strip()
+    if not candidate.startswith("{"):
+        return None
+    try:
+        data = json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(data, dict) and isinstance(data.get("tool"), str):
+        return data
+    return None
 
 
 def format_timestamp(seconds: int) -> str:
@@ -92,6 +122,7 @@ def research_stream(
     history: list[dict] | None = None,
     llm=None,
     top_k: int = TOP_K,
+    use_tools: bool = False,
 ) -> tuple[list[dict], Iterator[str]]:
     """Answer a question across several notebooks (research mode).
 
@@ -99,6 +130,10 @@ def research_stream(
     isn't dominated by one notebook. Excerpts are labelled with their notebook,
     and returned chunks carry `kind`, `notebook_id`, and `notebook_name` for
     citation rendering.
+
+    When `use_tools` is set, one bounded tool round is allowed first: the model
+    may request a single local tool via strict JSON, the tool is run (logged),
+    and its trusted result is fed back before the final grounded answer.
     """
     llm = llm or get_llm()
     chunks = hybrid_search_many(notebook_ids, question, k=top_k, llm=llm)
@@ -135,4 +170,39 @@ def research_stream(
             "Tell the user you couldn't find this in their sources."
         )
     messages.append({"role": "user", "content": user_msg})
+
+    if not use_tools:
+        return chunks, llm.chat(messages, stream=True)
+
+    # Bounded tool round: exactly one planning call, at most one tool execution.
+    from . import tools as tool_mod
+
+    messages[0]["content"] += _TOOL_INSTRUCTION.replace(
+        "{tools}", json.dumps(tool_mod.list_tools())
+    )
+    plan_raw = llm.chat(messages)
+    if not isinstance(plan_raw, str):
+        plan_raw = "".join(plan_raw)
+    plan = _parse_tool_call(plan_raw)
+    if plan is None:
+        return chunks, iter([plan_raw])  # answered directly; nothing to run
+
+    try:
+        result = tool_mod.run_tool(plan["tool"], plan.get("args") or {})
+        log.info("Research tool %s(%s) -> %s", plan["tool"], plan.get("args"), result)
+    except tool_mod.ToolError as e:
+        result = {"error": str(e)}
+        log.warning("Research tool %s failed: %s", plan.get("tool"), e)
+
+    messages.append({"role": "assistant", "content": plan_raw})
+    messages.append(
+        {
+            "role": "user",
+            "content": (
+                f"Tool result (computed locally, trusted; do not cite it): "
+                f"{json.dumps(result)}\n\nNow answer the question using the "
+                "sources and this result."
+            ),
+        }
+    )
     return chunks, llm.chat(messages, stream=True)

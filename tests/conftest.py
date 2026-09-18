@@ -50,6 +50,8 @@ class MockLLM:
                 reply = "The answer is in the sources [1]. Bogus claim [9]."
             return iter([reply[: len(reply) // 2], reply[len(reply) // 2 :]])
         # non-stream calls are Studio generations — dispatch on the prompt
+        if "local tool" in system:  # opt-in research tool protocol
+            return json.dumps({"tool": "calculator", "args": {"expression": "6*7"}})
         if "data-visualization" in system:
             return json.dumps(
                 {

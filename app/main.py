@@ -240,6 +240,7 @@ class ResearchIn(BaseModel):
     question: str
     notebook_ids: list[str] = []  # empty = all notebooks
     history: list[dict] = []
+    use_tools: bool = False  # opt-in single local-tool round
 
 
 class LibraryGraphIn(BaseModel):
@@ -772,7 +773,9 @@ def research(body: ResearchIn):
             raise HTTPException(404, f"Notebook not found: {nb_id}")
 
     try:
-        chunks, tokens = research_stream(notebook_ids, body.question, body.history)
+        chunks, tokens = research_stream(
+            notebook_ids, body.question, body.history, use_tools=body.use_tools
+        )
     except Exception:
         log.exception("Research retrieval failed")
         raise HTTPException(503, "Could not retrieve sources for this question")

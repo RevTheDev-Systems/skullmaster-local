@@ -81,6 +81,53 @@ def test_run_tool_and_validation():
 # ---------- API ----------
 
 
+# ---------- wiring into the grounded research path ----------
+
+
+class _FakeLLM:
+    def __init__(self, plan=None):
+        self.plan = plan
+        self.calls = []
+
+    def embed(self, texts):
+        # 8-dim to match MockLLM, so it can search the shared test index.
+        return [[0.0] * 8 for _ in texts]
+
+    def chat(self, messages, stream=False):
+        self.calls.append(stream)
+        if stream:
+            return iter(["It is 42 [1]."])
+        return self.plan if self.plan is not None else "Direct answer."
+
+
+def test_research_tool_round_runs_once():
+    from app import db, rag
+
+    db.init_db()
+    llm = _FakeLLM(plan='{"tool": "calculator", "args": {"expression": "6*7"}}')
+    _, tokens = rag.research_stream(["nb"], "What is 6*7?", [], llm=llm, use_tools=True)
+    assert "".join(tokens) == "It is 42 [1]."
+    assert llm.calls == [False, True]  # one planning call, then the answer
+
+
+def test_research_without_tools_streams_directly():
+    from app import db, rag
+
+    db.init_db()
+    llm = _FakeLLM()
+    _, tokens = rag.research_stream(["nb"], "hi", [], llm=llm, use_tools=False)
+    assert "".join(tokens) == "It is 42 [1]."
+    assert llm.calls == [True]  # no planning call
+
+
+def test_research_api_accepts_use_tools(client, notebook):
+    res = client.post(
+        "/api/research", json={"question": "What is 6*7?", "history": [], "use_tools": True}
+    )
+    assert res.status_code == 200, res.text
+    assert "event: sources" in res.text and "event: done" in res.text
+
+
 def test_tools_api(client):
     listing = client.get("/api/tools").json()["tools"]
     assert any(t["name"] == "calculator" for t in listing)

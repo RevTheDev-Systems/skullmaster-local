@@ -588,7 +588,9 @@ $("#chat-form").addEventListener("submit", async (e) => {
   if (state.chatBusy) return;
   const question = $("#chat-input").value.trim();
   const research = $("#research-all").checked;
-  if (!question || (!research && !state.current)) return;
+  const tools = $("#research-tools").checked;
+  const useResearch = research || tools;
+  if (!question || (!useResearch && !state.current)) return;
   $("#chat-input").value = "";
   state.chatBusy = true;
   $("#chat-send").disabled = true;
@@ -602,9 +604,14 @@ $("#chat-form").addEventListener("submit", async (e) => {
   let fullText = "";
 
   try {
-    const url = research ? "/api/research" : `/api/notebooks/${state.current}/chat`;
-    const body = research
-      ? { question, notebook_ids: [], history: state.history }
+    const url = useResearch ? "/api/research" : `/api/notebooks/${state.current}/chat`;
+    const body = useResearch
+      ? {
+          question,
+          notebook_ids: research ? [] : [state.current],
+          history: state.history,
+          use_tools: tools,
+        }
       : { question, history: state.history };
     const res = await fetch(url, {
       method: "POST",
@@ -653,10 +660,12 @@ $("#chat-form").addEventListener("submit", async (e) => {
       }
     }
 
-    if (research && fullText) {
+    if (useResearch && fullText) {
       const note = document.createElement("div");
       note.className = "msg-note";
-      note.textContent = "Researched across all notebooks — not saved to this notebook.";
+      note.textContent = research
+        ? "Researched across all notebooks — not saved to this notebook."
+        : "Tool-assisted answer — not saved to this notebook.";
       assistantEl.appendChild(note);
     }
     state.history.push({ role: "user", content: question });

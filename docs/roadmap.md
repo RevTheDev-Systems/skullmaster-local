@@ -45,13 +45,16 @@ subsystems plus the model fabric:
 
 ## Longer term (separate pipelines, deliberate)
 
-- **Vision-document understanding** — diagrams/charts/images inside documents.
+- **Vision-document understanding** — 🟡 groundwork ready: `qwen2.5vl:7b` is
+  installed and routable for the `vision` capability; the ingestion/analysis
+  feature that uses it (diagrams/charts/images inside documents) is next.
 - **Slides and Video Overviews** — ✅ delivered as distinct pipelines
   (`slides.py`, `video.py`), not bolted onto `studio.py`: grounded decks + a
   navigator, and a narrated MP4 (slide images + local TTS, muxed with ffmpeg).
-- **Controlled tool-using research workflows** — 🟡 started: a safe, auditable
-  local tool registry (`app/tools.py`, `/api/tools`) with no code execution;
-  wiring tools into the grounded answer path (bounded, logged) is the next step.
+- **Controlled tool-using research workflows** — ✅ a safe, auditable tool
+  registry (`app/tools.py`, `/api/tools`) with no code execution, wired into
+  research answers as one opt-in, logged tool round (`use_tools`). Source-scoped
+  tools and a multi-step budget remain future.
 
 ## Principles
 

@@ -42,7 +42,8 @@ See `README.md` for usage and the architecture overview.
 - **Local tools (Phase 22)** — a controlled, auditable tool layer
   (`calculator`, `days_between`, `convert`, `word_count`) with strict argument
   validation and no code execution, exposed via `/api/tools` and
-  `/api/tools/run`. See `docs/tools.md`.
+  `/api/tools/run`, and wired into research answers as one opt-in, logged tool
+  round (`use_tools`). See `docs/tools.md`.
 - **Diagnostics** — `python -m app.diagnostics` (config classification, storage,
   SQLite, providers, TTS/STT, OCR).
 - **Backup/restore** — `python -m app.backup create|restore`: a coherent,
@@ -56,6 +57,9 @@ See `README.md` for usage and the architecture overview.
 - **MLX capability inference** — reasoning support for MLX models is inferred
   from naming hints because `/v1/models` exposes no capabilities; treat
   `can_reason` for MLX as a heuristic.
+- **Vision groundwork** — `qwen2.5vl:7b` (6.0 GB) is installed and reported by the
+  router (`route_plan("vision")`), so vision-document understanding can be built
+  next; the feature itself is not implemented yet.
 - **Retrieval tuning** — fusion weighting is tuned (BM25 1.5 lifted recall@3 to
   1.0) and a chunk size/overlap sweep (`--sweep`) shows all configurations
   identical on the current corpus (saturated). Reranking/query expansion remain
