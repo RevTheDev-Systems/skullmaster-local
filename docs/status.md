@@ -46,9 +46,9 @@ See `README.md` for usage and the architecture overview.
 - **Local tools (Phase 22)** — a controlled, auditable tool layer
   (`calculator`, `days_between`, `convert`, `word_count`) with strict argument
   validation and no code execution, exposed via `/api/tools` and
-  `/api/tools/run`, and wired into research answers as one opt-in, logged tool
-  round (`use_tools`), including source-scoped `count_in_sources` /
-  `find_in_sources`. See `docs/tools.md`.
+  `/api/tools/run`, and wired into research answers as an opt-in, logged
+  **multi-step** tool loop (`use_tools`, bounded by `TOOL_MAX_ROUNDS`), including
+  source-scoped `count_in_sources` / `find_in_sources`. See `docs/tools.md`.
 - **Diagnostics** — `python -m app.diagnostics` (config classification, storage,
   SQLite, providers, TTS/STT, OCR).
 - **Backup/restore** — `python -m app.backup create|restore`: a coherent,

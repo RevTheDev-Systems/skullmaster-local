@@ -6,7 +6,7 @@ import re
 from collections.abc import Iterator
 
 from . import db
-from .config import CONTEXT_HISTORY_TURNS, TOP_K, load_prompt
+from .config import CONTEXT_HISTORY_TURNS, TOOL_MAX_ROUNDS, TOP_K, load_prompt
 from .providers import get_llm
 from .store import hybrid_search, hybrid_search_many, notebook_chunks
 
@@ -15,12 +15,13 @@ log = logging.getLogger(__name__)
 # Opt-in tool protocol: at most one local tool per answer, chosen by strict JSON.
 # {tools} is replaced (not .format) because the instruction contains literal braces.
 _TOOL_INSTRUCTION = (
-    "\n\nLOCAL TOOLS: You may use at most ONE local tool before answering. If the "
-    "question needs exact arithmetic, date math, or unit conversion, reply with "
-    'ONLY a JSON object of the form {"tool": "<name>", "args": { ... }} using one '
-    "of the tools below and nothing else. Otherwise answer the question normally "
-    "with citations. Tool results are computed locally and trusted; do not cite "
-    "them to a source.\n\nAvailable tools:\n{tools}"
+    "\n\nLOCAL TOOLS: You may use up to {rounds} local tool(s) before answering. If "
+    "the question needs exact arithmetic, date math, unit conversion, or counting "
+    "across the sources, reply with ONLY a JSON object of the form "
+    '{"tool": "<name>", "args": { ... }} using one of the tools below and nothing '
+    "else. Otherwise answer the question normally with citations. Tool results are "
+    "computed locally and trusted; do not cite them to a source.\n\nAvailable "
+    "tools:\n{tools}"
 )
 
 
@@ -136,6 +137,7 @@ def research_stream(
     llm=None,
     top_k: int = TOP_K,
     use_tools: bool = False,
+    max_rounds: int | None = None,
 ) -> tuple[list[dict], Iterator[str]]:
     """Answer a question across several notebooks (research mode).
 
@@ -144,11 +146,14 @@ def research_stream(
     and returned chunks carry `kind`, `notebook_id`, and `notebook_name` for
     citation rendering.
 
-    When `use_tools` is set, one bounded tool round is allowed first: the model
-    may request a single local tool via strict JSON, the tool is run (logged),
-    and its trusted result is fed back before the final grounded answer.
+    When `use_tools` is set, a bounded multi-step tool loop (up to `max_rounds`,
+    default `TOOL_MAX_ROUNDS`) is allowed first: the model may request a local
+    tool via strict JSON, the tool is run (logged), and each trusted result is
+    fed back before the final grounded answer. Repeated calls are short-circuited
+    and the loop always ends in an answer.
     """
     llm = llm or get_llm()
+    max_rounds = max_rounds or TOOL_MAX_ROUNDS
     chunks = hybrid_search_many(notebook_ids, question, k=top_k, llm=llm)
 
     meta: dict[str, dict] = {}
@@ -187,39 +192,71 @@ def research_stream(
     if not use_tools:
         return chunks, llm.chat(messages, stream=True)
 
-    # Bounded tool round: exactly one planning call, at most one tool execution.
+    # Bounded multi-step tool loop: at most TOOL_MAX_ROUNDS tool executions,
+    # never repeating the same call, and always forced to a final answer.
     from . import tools as tool_mod
 
-    messages[0]["content"] += _TOOL_INSTRUCTION.replace(
+    messages[0]["content"] += _TOOL_INSTRUCTION.replace("{rounds}", str(max_rounds)).replace(
         "{tools}", json.dumps(tool_mod.list_tools())
     )
-    plan_raw = llm.chat(messages)
-    if not isinstance(plan_raw, str):
-        plan_raw = "".join(plan_raw)
-    plan = _parse_tool_call(plan_raw)
-    if plan is None:
-        return chunks, iter([plan_raw])  # answered directly; nothing to run
 
-    try:
-        context = None
-        spec = tool_mod.TOOLS.get(str(plan["tool"]))
-        if spec is not None and spec.get("contextual"):
-            context = _tool_context(notebook_ids)
-        result = tool_mod.run_tool(plan["tool"], plan.get("args") or {}, context)
-        log.info("Research tool %s(%s) -> %s", plan["tool"], plan.get("args"), result)
-    except tool_mod.ToolError as e:
-        result = {"error": str(e)}
-        log.warning("Research tool %s failed: %s", plan.get("tool"), e)
+    executed: set[str] = set()
+    for round_index in range(max_rounds):
+        plan_raw = llm.chat(messages)
+        if not isinstance(plan_raw, str):
+            plan_raw = "".join(plan_raw)
+        plan = _parse_tool_call(plan_raw)
+        if plan is None:
+            return chunks, iter([plan_raw])  # answered directly; nothing to run
 
-    messages.append({"role": "assistant", "content": plan_raw})
+        signature = f"{plan['tool']}:{json.dumps(plan.get('args') or {}, sort_keys=True)}"
+        if signature in executed:
+            log.info("Research tool %s repeated; forcing the final answer", plan["tool"])
+            messages.append({"role": "assistant", "content": plan_raw})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": "That tool already ran with the same arguments. Answer now "
+                    "using the sources and the tool results; do not request more tools.",
+                }
+            )
+            break
+
+        executed.add(signature)
+        try:
+            context = None
+            spec = tool_mod.TOOLS.get(str(plan["tool"]))
+            if spec is not None and spec.get("contextual"):
+                context = _tool_context(notebook_ids)
+            result = tool_mod.run_tool(plan["tool"], plan.get("args") or {}, context)
+            log.info(
+                "Research tool round %d: %s(%s) -> %s",
+                round_index + 1,
+                plan["tool"],
+                plan.get("args"),
+                result,
+            )
+        except tool_mod.ToolError as e:
+            result = {"error": str(e)}
+            log.warning("Research tool %s failed: %s", plan.get("tool"), e)
+
+        messages.append({"role": "assistant", "content": plan_raw})
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    f"Tool result (computed locally, trusted; do not cite it): "
+                    f"{json.dumps(result)}\n\nAnswer using the sources and this result. "
+                    "You may request more tools only if genuinely needed."
+                ),
+            }
+        )
+
     messages.append(
         {
             "role": "user",
-            "content": (
-                f"Tool result (computed locally, trusted; do not cite it): "
-                f"{json.dumps(result)}\n\nNow answer the question using the "
-                "sources and this result."
-            ),
+            "content": "Tool budget exhausted. Answer now using the sources and any "
+            "tool results, with citations, and do not request more tools.",
         }
     )
     return chunks, llm.chat(messages, stream=True)

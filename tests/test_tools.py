@@ -102,7 +102,7 @@ def test_source_scoped_tools():
 
 class _FakeLLM:
     def __init__(self, plan=None):
-        self.plan = plan
+        self.plans = list(plan) if isinstance(plan, list) else ([plan] if plan else [])
         self.calls = []
         self.seen = []
 
@@ -115,7 +115,7 @@ class _FakeLLM:
         self.seen.append(messages)
         if stream:
             return iter(["It is 42 [1]."])
-        return self.plan if self.plan is not None else "Direct answer."
+        return self.plans.pop(0) if self.plans else "Direct answer."
 
 
 def test_source_scoped_tool_gets_research_context(monkeypatch):
@@ -131,7 +131,7 @@ def test_source_scoped_tool_gets_research_context(monkeypatch):
     )
     llm = _FakeLLM(plan='{"tool": "count_in_sources", "args": {"term": "meridian"}}')
     _, tokens = rag.research_stream(
-        ["nb"], "how often is Meridian mentioned?", [], llm=llm, use_tools=True
+        ["nb"], "how often is Meridian mentioned?", [], llm=llm, use_tools=True, max_rounds=1
     )
     assert "".join(tokens) == "It is 42 [1]."
     observation = " ".join(m.get("content", "") for m in llm.seen[-1])
@@ -143,9 +143,41 @@ def test_research_tool_round_runs_once():
 
     db.init_db()
     llm = _FakeLLM(plan='{"tool": "calculator", "args": {"expression": "6*7"}}')
-    _, tokens = rag.research_stream(["nb"], "What is 6*7?", [], llm=llm, use_tools=True)
+    _, tokens = rag.research_stream(
+        ["nb"], "What is 6*7?", [], llm=llm, use_tools=True, max_rounds=1
+    )
     assert "".join(tokens) == "It is 42 [1]."
     assert llm.calls == [False, True]  # one planning call, then the answer
+
+
+def test_research_multi_step_tool_budget():
+    from app import db, rag
+
+    db.init_db()
+    llm = _FakeLLM(
+        plan=[
+            '{"tool": "calculator", "args": {"expression": "2+2"}}',
+            '{"tool": "calculator", "args": {"expression": "3+3"}}',
+        ]
+    )
+    _, tokens = rag.research_stream(["nb"], "two sums", [], llm=llm, use_tools=True, max_rounds=2)
+    assert "".join(tokens) == "It is 42 [1]."
+    assert llm.calls == [False, False, True]  # two planning calls, then the stream
+    final = " ".join(m.get("content", "") for m in llm.seen[-1])
+    assert '"result": 4' in final and '"result": 6' in final
+
+
+def test_research_repeated_tool_short_circuits():
+    from app import db, rag
+
+    db.init_db()
+    call = '{"tool": "calculator", "args": {"expression": "2+2"}}'
+    llm = _FakeLLM(plan=[call, call])
+    _, tokens = rag.research_stream(["nb"], "loop?", [], llm=llm, use_tools=True, max_rounds=3)
+    assert "".join(tokens) == "It is 42 [1]."
+    assert llm.calls == [False, False, True]  # stopped after the repeat
+    final = " ".join(m.get("content", "") for m in llm.seen[-1])
+    assert "already ran" in final
 
 
 def test_research_without_tools_streams_directly():

@@ -120,6 +120,10 @@ def ocr_configured() -> bool:
     return OCR_MODE not in _OCR_FALSY
 
 
+# ---- Local tools (Phase 22) ----
+# Maximum tool rounds a single research answer may take before it must answer.
+TOOL_MAX_ROUNDS = _int_env("TOOL_MAX_ROUNDS", 2, minimum=1, maximum=5)
+
 # ---- Studio artifacts ----
 ARTIFACT_CONTEXT_CHARS = 24_000  # max source characters fed to artifact generation
 
@@ -249,4 +253,13 @@ def config_report() -> list[dict]:
         str(OCR_MIN_CHARS_PER_PAGE),
     )
     add("OCR_DPI", "invalid" if _invalid_int("OCR_DPI", 72) else "optional", str(OCR_DPI))
+
+    # Local tools
+    add(
+        "TOOL_MAX_ROUNDS",
+        "invalid"
+        if _invalid_int("TOOL_MAX_ROUNDS", 1, 5) or not 1 <= TOOL_MAX_ROUNDS <= 5
+        else "optional",
+        str(TOOL_MAX_ROUNDS),
+    )
     return report

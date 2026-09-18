@@ -49,7 +49,8 @@ message.
 ## Wired into research answers
 
 `POST /api/research` accepts `"use_tools": true` (the chat bar's **🧮 Tools**
-toggle). When enabled, `rag.research_stream` allows **one bounded tool round**:
+toggle). When enabled, `rag.research_stream` runs a **bounded multi-step tool
+loop** — up to `TOOL_MAX_ROUNDS` (default `2`):
 
 1. The grounded system prompt gains a strict protocol: reply with *only*
    `{"tool": "<name>", "args": { ... }}` when a tool is needed, else answer
@@ -58,14 +59,16 @@ toggle). When enabled, `rag.research_stream` allows **one bounded tool round**:
    and result are **logged** (`app.rag`); the trusted result is fed back with an
    explicit "do not cite it" instruction. Source-scoped tools receive a bounded
    `{sources: [...]}` context gathered from the target notebooks.
-3. The final answer is then streamed with the usual grounded citations.
+3. The loop repeats (bounded): a **repeated** tool call with the same arguments
+   is short-circuited, and once the budget is exhausted the model is told to
+   answer now. The final answer streams with the usual grounded citations.
 
 If the model answers directly (no tool), that text streams unchanged. Grounding,
 citation validation, and the primary chat path are untouched — tools are strictly
-opt-in.
+opt-in. `TOOL_MAX_ROUNDS` (1–5) bounds the loop.
 
 ## Roadmap
 
-Source-scoped tools are delivered (`count_in_sources`, `find_in_sources`). A
-deliberate future step is a stricter multi-step budget (currently exactly one
-tool round), still local, deterministic, and cite-or-refuse.
+Everything here is delivered. Possible future steps: notebooks/libraries as an
+explicit tool scope, and surfacing the tool log in the UI — still local,
+deterministic, and cite-or-refuse.
