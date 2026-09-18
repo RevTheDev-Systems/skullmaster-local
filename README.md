@@ -11,8 +11,9 @@ via [Ollama](https://ollama.com). No cloud APIs, no telemetry, no tracking.
 - **Closed-world RAG chat** — answers come ONLY from your sources; off-corpus questions are declined instead of hallucinated
 - **Inline citations** — every claim carries a clickable `[n]` chip that opens the exact source passage (with page numbers for PDFs, timestamps for media)
 - **Audio Overview** — a two-host podcast conversation about your sources, synthesized with a local TTS model, playable and downloadable in the UI
-- **Charts, infographics, spreadsheets & mind graphs** — Studio generates grounded artifacts from your sources: bar/line/pie charts, infographics, and mind graphs (downloadable as SVG), plus extracted data tables (downloadable as XLSX/CSV); numbers are validated to come from the sources, and the model refuses when the notebook has no usable data
-- **Mind Graph** — maps a notebook's ideas as a radial concept graph: central topic, colour-coded theme branches, specific concepts, and dashed cross-links for relationships that span branches
+- **Grounded documents** — Studio also writes a **briefing document, study guide, FAQ, timeline, and source summary** from your sources, each downloadable as Markdown; like every generator, they must cite the sources or refuse
+- **Charts, infographics, spreadsheets & mind graphs** — bar/line/pie charts, infographics, and mind graphs (downloadable as SVG), plus extracted data tables (downloadable as XLSX/CSV); numbers are validated to come from the sources, and the model refuses when the notebook has no usable data
+- **Source-grounded knowledge graph** — the Mind Graph is a radial concept graph (central topic, colour-coded theme branches, concepts, cross-links) whose nodes are bound to the exact source passage they came from, shown in an Evidence list
 - **Persistent** — notebooks, sources, chat history, audio overviews, and artifacts survive refreshes and restarts
 - **Password-protected** — a sign-in screen guards every route and API endpoint; the password is stored only as a salted PBKDF2 hash on this machine
 - **Themed UI** — dark by default with a light theme one click away, and a mobile layout with a bottom tab bar
@@ -23,9 +24,13 @@ via [Ollama](https://ollama.com). No cloud APIs, no telemetry, no tracking.
 # Prereqs: Ollama running, uv installed
 cp .env.example .env      # adjust models if desired
 uv sync
-uv run uvicorn app.main:app --host 127.0.0.1 --port 8501
+uv run python -m app      # binds HOST/PORT from .env (default 127.0.0.1:8501)
 # open http://127.0.0.1:8501
 ```
+
+`HOST`/`PORT` come from `.env` and are the single source of truth: the
+`python -m app` entry point, `scripts/launcher.sh`, and its health check all
+read them, so there are no hardcoded addresses to keep in sync.
 
 On first boot the app checks the models configured in `.env` and pulls any that
 are missing (progress is logged; startup won't silently hang). Kokoro TTS weights
@@ -60,9 +65,20 @@ requires a valid session — including `/health` and every `/api/*` route.
 
 **From the UI:** the header has a model picker listing every chat-capable model
 from **both** engines — Ollama and, when available, MLX. Switching takes effect
-immediately and is remembered across restarts (stored in the `settings` table,
-overriding the `.env` default). The ⟳ button re-reads the model list and
-readiness. Embedding-only models are filtered out, since they can't answer chat.
+immediately and is remembered across restarts (stored in the `settings` table as
+the *preferred* model, separate from the *active* runtime model). The ⟳ button
+re-reads the model list and readiness.
+
+Models carry capability metadata — chat / reasoning / embedding / vision / tools
+— plus context length, and each provider reports a state
+(`healthy` / `degraded` / `offline`). Per-model metadata is cached (300s), so a
+warm model list is a single `list()` call; the ⟳ button requests `?refresh=1` to
+bypass the cache after a model pull. Embedding-only models are filtered out,
+since they can't answer chat.
+
+A model going offline is not an application failure: if the saved preference's
+backend is unavailable, chat falls back to a reachable Ollama model, keeps the
+preference, and shows a warning.
 
 ### MLX models (Apple silicon)
 
@@ -86,7 +102,7 @@ mlx_lm.server --host 127.0.0.1 --port 8080
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `MLX_ENABLED` | `auto` (use it if the endpoint answers), `true`, or `false` | `auto` |
+| `MLX_ENABLED` | `auto` (probe the endpoint live, including after launch), `true`, or `false` | `auto` |
 | `MLX_BASE_URL` | OpenAI-compatible endpoint (mlx_lm.server, LM Studio, …) | `http://127.0.0.1:8080/v1` |
 | `MLX_REQUEST_TIMEOUT` | Connect timeout in seconds (no read timeout, so long generations aren't cut off) | `30` |
 
@@ -105,6 +121,7 @@ invalidates every stored vector, so it shouldn't be a one-click action.
 | `OLLAMA_BASE_URL` | LLM backend endpoint | `http://localhost:11434` |
 | `LLM_PROVIDER` | Backend implementation | `ollama` (Ollama + auto-detected MLX; further OpenAI-compatible backends drop into `app/providers/`) |
 | `MAX_UPLOAD_MB` / `MEDIA_MAX_UPLOAD_MB` | Upload caps | documents 50MB / media 1GB by default |
+| `HOST` / `PORT` | Bind address used by `python -m app` and the launcher | `127.0.0.1` / `8501` |
 
 **Note:** if you change `EMBED_MODEL`, re-ingest your sources — embeddings from
 different models are not comparable.
@@ -120,15 +137,26 @@ download once into `models/whisper/` on the first transcription. Bigger sizes
 transcribe more accurately but slower; `whisper-base` is a good default for
 clear speech.
 
-## Tests
+## Tests, lint, types, and the RAG benchmark
 
 ```bash
-uv run pytest            # unit + integration suite (mock providers, temp data dir)
+uv run pytest                 # unit + integration suite (mock providers, temp data dir)
+uv run ruff check app tests   # lint
+uv run ruff format --check app tests
+uv run mypy app               # type check
+
+# RAG evaluation harness — real retrieval/generation over a fixed corpus:
+uv run python -m app.evaluation              # configured models, throwaway data dir
+uv run python -m app.evaluation --no-generate  # retrieval metrics only (fast)
 ```
 
 The integration tests run the real FastAPI app against real SQLite/LanceDB in a
-throwaway directory, with mock LLM/TTS providers so no models are needed. Final
-acceptance (real models, real browser) is documented in `docs/action-audit.md`.
+throwaway directory with mock LLM/TTS providers and a lexical embedding stub, so
+**no models are needed** and CI never downloads multi-gigabyte weights
+(`.github/workflows/ci.yml`). The RAG benchmark is documented in `evals/` with a
+committed baseline; retrieval is only tuned once the benchmark says so. Browser
+acceptance is in `docs/browser-acceptance.md`, ingestion coverage in
+`docs/ingestion-matrix.md`, and current status in `docs/status.md`.
 
 ## Diagnostics
 
@@ -185,30 +213,39 @@ app/
     mlx_provider.py  MLX chat via an OpenAI-compatible endpoint (reasoning discarded)
     tts_kokoro.py    Kokoro-82M via kokoro-onnx (auto-downloads weights)
     tts_say.py       macOS `say` fallback
-  prompts/         the two quality-critical prompts, as editable text files
-    grounded_answer.txt   closed-world cited answering
-    podcast_script.txt    two-host audio overview script
-    chart_spec.txt        grounded chart extraction (bar/line/pie JSON)
-    infographic_spec.txt  grounded infographic extraction
-    spreadsheet_spec.txt  grounded tabular-data extraction
-    mindgraph_spec.txt    grounded concept map (root/branches/links JSON)
-  ingest.py        PDF (PyMuPDF), DOCX (python-docx), XLSX (openpyxl), text,
-                   video/audio transcription (Whisper), hardened URL fetch
+  prompts/         every quality-critical prompt, as editable text files
+    grounded_answer.txt     closed-world cited answering
+    podcast_script.txt      two-host audio overview script
+    chart_spec.txt          grounded chart extraction (bar/line/pie JSON)
+    infographic_spec.txt    grounded infographic extraction
+    spreadsheet_spec.txt    grounded tabular-data extraction
+    mindgraph_spec.txt      grounded concept map (root/branches/links JSON)
+    briefing_spec.txt       grounded briefing document
+    study_guide_spec.txt    grounded study guide
+    faq_spec.txt            grounded FAQ
+    timeline_spec.txt       grounded timeline
+    source_summary_spec.txt grounded source summary
+  ingest.py        PDF (PyMuPDF), DOCX (python-docx), XLSX (openpyxl), HTML
+                   (trafilatura + fallback), text, video/audio (Whisper),
+                   hardened URL fetch; failures normalized to IngestError
   chunker.py       paragraph-packing chunker (~800 tok, overlap), page metadata
   store.py         LanceDB vector store + BM25, reciprocal-rank-fusion hybrid search
   rag.py           retrieval → grounded prompt → streamed cited answer
-  studio.py        podcast generation + chart/infographic/spreadsheet artifacts
+  studio.py        podcast + all grounded artifacts (visual and text) + evidence binding
+  evaluation.py    deterministic RAG benchmark (python -m app.evaluation)
   auth.py          password hashing (PBKDF2), server-side sessions, login throttling
   db.py            SQLite metadata (notebooks, sources, messages, audio, artifacts,
                    owner account, sessions)
   diagnostics.py   python -m app.diagnostics
+  __main__.py      python -m app — binds HOST/PORT from config
   main.py          FastAPI endpoints, auth guard middleware, SSE chat streaming
 static/            three-panel web UI (Sources | Chat | Studio), vanilla JS
   login.html/.css/.js   sign-in and first-run password setup screen
-tests/             pytest unit + integration suite
-docs/              implementation audit + action/button audit
-data/              runtime state: uploads, LanceDB, SQLite, generated audio
-models/            local TTS weights
+tests/             pytest unit + integration suite (mock providers)
+evals/             RAG benchmark corpus + committed baseline
+docs/              status, browser acceptance, ingestion matrix, knowledge graph
+data/              runtime state: uploads, LanceDB, SQLite, generated audio/artifacts
+models/            local TTS/STT weights
 ```
 
 **Citation flow:** retrieval returns the top excerpts; the model must cite them
@@ -230,9 +267,14 @@ on a media source shows its timestamp and can open the player at that moment.
 
 **Artifact flow:** notebook chunks → kind-specific grounded prompt → strict JSON
 spec, shape-validated server-side (one retry) → persisted in SQLite → rendered
-client-side as SVG (charts, infographics) or an HTML table (spreadsheets, also
-materialized as a real `.xlsx` in `data/artifacts/`). The prompts forbid invented
-numbers and instruct the model to refuse when the sources hold no usable data.
+client-side as SVG (charts, infographics, mind graphs), an HTML table
+(spreadsheets, also materialized as a real `.xlsx` in `data/artifacts/`), or a
+formatted document (briefing, study guide, FAQ, timeline, summary) with a
+Markdown download. Malformed model output is retried; a model refusal is final.
+Mind-graph nodes are then bound to the exact source chunk they came from
+(`studio.bind_evidence`) and shown in an Evidence list. The prompts forbid
+invented facts and instruct the model to refuse when the sources hold no usable
+data.
 
 **Why LanceDB:** embedded (no server process), columnar with fast ANN and
 SQL-style metadata filtering, and the whole index is one portable directory.
@@ -251,15 +293,23 @@ rank fusion.
   likewise synchronous (roughly real-time or faster with `whisper-base` on CPU).
 - Transcription quality depends on audio clarity and the `STT_MODEL` size;
   videos without speech are rejected ("No speech detected").
-- Chart/infographic/spreadsheet quality depends on the sources actually
-  containing numeric or tabular facts; the model is instructed to refuse
-  rather than invent data.
+- Studio quality depends on the sources actually containing the relevant
+  material (numbers, dates, concepts); every generator is instructed to refuse
+  rather than invent, so thin notebooks yield refusals instead of content.
 - Browser playback supports what the browser supports — MP4/WebM play everywhere;
   MKV/AVI ingest fine but may not play in every browser.
 - TTS voices are English-focused (Kokoro `en-us` voices by default).
 
+## Status
+
+See `docs/status.md` for the current implemented / experimental / planned /
+out-of-scope inventory. In short: the self-hosted local app is implemented and
+tested; OCR, richer cross-notebook knowledge graphs, and a fuller model
+capability router are planned; video/slides and web search are out of scope.
+
 ## Future work (intentionally out of scope)
 
-- Video Overviews and slide decks
+- Video Overviews and slide decks (separate rendering pipelines, deliberately
+  not bolted onto `studio.py`)
 - Deep Research / web search (the app is closed-world by design)
-- Studio text artifacts: briefing docs, study guides, FAQs, timelines, mind maps
+- OCR for scanned documents (planned as a capability, never applied by default)

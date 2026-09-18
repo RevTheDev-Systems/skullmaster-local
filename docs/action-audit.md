@@ -1,4 +1,11 @@
-# SkullMaster iQ — Action & Button Audit
+# SkullMaster iQ — Action & Button Audit (historical)
+
+> **Historical.** This audit records the 2026-07-08/09 browser pass. Controls
+> added later (text artifacts, model capabilities, evidence list, favicon) are
+> not listed here; the current acceptance matrix is
+> [`browser-acceptance.md`](browser-acceptance.md) and the current status is
+> [`status.md`](status.md). Note: "Mind Map" here is the Mind Graph, which now
+> binds each node to source evidence.
 
 Every interactive control in the application, audited 2026-07-08 against the
 running app (real Ollama models, real browser). "Tested" means the actual

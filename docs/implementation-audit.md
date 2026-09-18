@@ -1,4 +1,9 @@
-# SkullMaster Local — Implementation Audit
+# SkullMaster Local — Implementation Audit (historical)
+
+> **Superseded.** This audit predates the stabilization work (Phases 0–11) and is
+> kept for provenance. Every item it lists as missing or partial has since been
+> addressed or re-scoped. For the current picture see [`status.md`](status.md),
+> `README.md`, `docs/browser-acceptance.md`, and `docs/ingestion-matrix.md`.
 
 Audited 2026-07-08 against the running system (backend started, endpoints exercised,
 Ollama + models verified live). Repo was at commit `c976fc8` on `main`, clean tree.
