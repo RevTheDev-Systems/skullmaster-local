@@ -12,7 +12,7 @@ migration. Package, module, and remote names are intentionally unchanged.
 | Product / brand | SkullMaster iQ | canonical |
 | Import package | `app` | unchanged |
 | Python distribution (`pyproject`) | `skullmaster-local` | intentionally unchanged (no module renames) |
-| GitHub repo | `revenueroyllc-stack/skullmaster-local` | intentionally unchanged |
+| GitHub repo | `RevTheDev-Systems/skullmaster-local` | moved from `revenueroyllc-stack` (org transfer) |
 | Local checkout | `~/skullmaster-iq` | **migrated** (was `~/notebooklm-local`) |
 
 The GitHub repository is **not** renamed merely because the local directory

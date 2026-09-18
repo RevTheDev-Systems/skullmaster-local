@@ -49,7 +49,7 @@ and `qwen2.5vl:7b` (diagrams / charts / images).
 ### One command
 
 ```bash
-git clone https://github.com/revenueroyllc-stack/skullmaster-local.git
+git clone https://github.com/RevTheDev-Systems/skullmaster-local.git
 cd skullmaster-local
 ./scripts/setup.sh        # checks prereqs, uv sync, creates .env, pulls models
 uv run python -m app      # then open http://127.0.0.1:8501

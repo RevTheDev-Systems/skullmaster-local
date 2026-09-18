@@ -11,8 +11,8 @@ Releases are cut by pushing a `v*` tag. The `Release` workflow
     never contains `.env`, `data/`, `models/`, or other untracked files).
   - `SHA256SUMS` — the tarball checksum.
 - A **container image** pushed to GitHub Container Registry:
-  - `ghcr.io/revenueroyllc-stack/skullmaster-local:<tag>`
-  - `ghcr.io/revenueroyllc-stack/skullmaster-local:latest`
+  - `ghcr.io/revthedev-systems/skullmaster-local:<tag>`
+  - `ghcr.io/revthedev-systems/skullmaster-local:latest`
 
 `workflow_dispatch` runs the packaging steps without creating a release or
 pushing an image (useful for a dry run).
@@ -47,7 +47,7 @@ pushing an image (useful for a dry run).
     --add-host=host.docker.internal:host-gateway \
     -e OLLAMA_BASE_URL=http://host.docker.internal:11434 \
     -v "$PWD/data":/app/data -v "$PWD/models":/app/models \
-    ghcr.io/revenueroyllc-stack/skullmaster-local:latest
+    ghcr.io/revthedev-systems/skullmaster-local:latest
   ```
   (GHCR packages are private by default; make the package public in the
   repository's package settings if you want anonymous pulls.)
