@@ -183,13 +183,13 @@ def parse_pdf(path: Path) -> list[tuple[int | None, str]]:
         with fitz.open(path) as doc:
             pages = [(i, page.get_text("text").strip()) for i, page in enumerate(doc, start=1)]
             total = sum(len(text) for _, text in pages)
-            # OCR only when the text layer is insufficient and an engine exists.
-            if (
-                pages
-                and ocr_configured()
-                and ocr_available()
-                and total < OCR_MIN_CHARS_PER_PAGE * len(pages)
-            ):
+            # OCR empty pages regardless of document-level text density.
+            # The density threshold also catches documents whose text layer is
+            # broadly insufficient, while _ocr_pages preserves text pages.
+            needs_ocr = any(not text for _, text in pages) or (
+                pages and total < OCR_MIN_CHARS_PER_PAGE * len(pages)
+            )
+            if pages and ocr_configured() and ocr_available() and needs_ocr:
                 pages = _ocr_pages(doc, pages)
             segments = [(i, text) for i, text in pages if text]
     except IngestError:

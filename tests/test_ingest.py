@@ -183,7 +183,8 @@ def test_ocr_runs_only_on_empty_pages(tmp_path, monkeypatch):
 
     path = tmp_path / "mixed.pdf"
     doc = fitz.open()
-    doc.new_page().insert_text((72, 72), "Page one has real text.")
+    native_text = "Page one has real text. " * 10
+    doc.new_page().insert_text((72, 72), native_text)
     doc.new_page()  # blank page (no text layer)
     doc.save(str(path))
     doc.close()
