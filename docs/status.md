@@ -24,7 +24,8 @@ See `README.md` for usage and the architecture overview.
   artifacts (briefing, study guide, FAQ, timeline, source summary).
   Strict server-side spec validation with one retry on malformed model output;
   model refusals are final. Knowledge-graph nodes and edges are typed
-  (controlled vocabularies) and bound to source evidence.
+  (controlled vocabularies), bound to source evidence, and explorable
+  (pan/zoom, click-to-focus).
 - **Providers** — Ollama + MLX behind a capability router. Preferred vs. active
   model, live discovery, provider states, cached metadata, failure isolation.
 - **Authentication** — PBKDF2 password, server-side sessions, login throttling,

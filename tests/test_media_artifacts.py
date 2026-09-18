@@ -725,3 +725,14 @@ def test_mindgraph_generation_attaches_edge_evidence(client, notebook):
         assert link["type"] in studio.RELATION_TYPES
         assert "evidence" in link
     assert any(link["evidence"] for link in spec["links"])  # at least one bound
+
+
+def test_knowledge_graph_explorer_is_wired():
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parent.parent / "static"
+    js = (static / "app.js").read_text(encoding="utf-8")
+    for marker in ("mountGraphExplorer", "graph-toolbar", "data-node", "data-from"):
+        assert marker in js, marker
+    css = (static / "style.css").read_text(encoding="utf-8")
+    assert ".graph-canvas" in css and ".graph-toolbar" in css

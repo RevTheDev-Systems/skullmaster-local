@@ -977,13 +977,15 @@ function renderMindGraph(spec) {
     h: size + 14,
   });
 
-  const drawPill = (node, { fill, textColor, size, bold, stroke }) => {
-    svgEl("rect", { x: node.x - node.w / 2, y: node.y - node.h / 2,
+  const drawPill = (node, { fill, textColor, size, bold, stroke, dataNode }) => {
+    const rect = svgEl("rect", { x: node.x - node.w / 2, y: node.y - node.h / 2,
                     width: node.w, height: node.h, rx: node.h / 2,
                     fill, "stroke-width": stroke ? 2 : 1,
                     stroke: stroke || "rgba(15,27,45,0.14)" }, nodes);
+    if (dataNode) rect.setAttribute("data-node", dataNode);
     const t = svgText(nodes, node.x, node.y + size * 0.35, node.text, {
       "text-anchor": "middle", "font-size": size, fill: textColor });
+    if (dataNode) t.setAttribute("data-node", dataNode);
     if (bold) t.setAttribute("font-weight", "700");
     const title = svgEl("title", {}, t);
     title.textContent = node.full;      // untruncated label on hover
@@ -1068,12 +1070,14 @@ function renderMindGraph(spec) {
     svgEl("path", {
       d: `M ${cx} ${cy} Q ${(cx + b.x) / 2 + (b.y - cy) * 0.12} ${(cy + b.y) / 2 - (b.x - cx) * 0.12} ${b.x} ${b.y}`,
       fill: "none", stroke: b.colour, "stroke-width": 2.4, opacity: 0.75,
+      "data-from": spec.root, "data-to": b.full,
     }, edges);
   }
   for (const c of childNodes) {
     svgEl("path", {
       d: `M ${c.parent.x} ${c.parent.y} Q ${(c.parent.x + c.x) / 2} ${(c.parent.y + c.y) / 2} ${c.x} ${c.y}`,
       fill: "none", stroke: c.parent.colour, "stroke-width": 1.5, opacity: 0.5,
+      "data-from": c.parent.full, "data-to": c.full,
     }, edges);
   }
 
@@ -1088,7 +1092,8 @@ function renderMindGraph(spec) {
     const qx = mx + (dx / len) * 42, qy = my + (dy / len) * 42;
     const edge = svgEl("path", { d: `M ${a.x} ${a.y} Q ${qx} ${qy} ${b.x} ${b.y}`,
                     fill: "none", stroke: style.colour, "stroke-width": 1.6,
-                    "stroke-dasharray": style.dash, opacity: 0.85 }, edges);
+                    "stroke-dasharray": style.dash, opacity: 0.85,
+                    "data-from": link.from, "data-to": link.to }, edges);
     const label = link.label || link.type;
     if (label) {
       const t = svgText(edges, qx, qy - 4, label, {
@@ -1103,14 +1108,17 @@ function renderMindGraph(spec) {
     drawPill(c, {
       fill: "#f4f7fc", textColor: "#1f2430", size: 11, bold: false,
       stroke: ENTITY_COLOURS[c.etype] || "rgba(15,27,45,0.14)",
+      dataNode: c.full,
     });
   }
   for (const b of branchNodes) {
-    drawPill(b, { fill: b.colour, textColor: "#ffffff", size: 12, bold: true });
+    drawPill(b, { fill: b.colour, textColor: "#ffffff", size: 12, bold: true,
+                  dataNode: b.full });
   }
   const rootText = clip(spec.root, 26);
   drawPill({ text: rootText, full: spec.root, x: cx, y: cy, ...pillSize(rootText, 14) },
-           { fill: "#1f2430", textColor: "#ffffff", size: 14, bold: true });
+           { fill: "#1f2430", textColor: "#ffffff", size: 14, bold: true,
+             dataNode: spec.root });
 
   // ---- 4. legend: the entity and relation types actually present ----
   const entityTypes = [...new Set(Object.values(nodeTypes))]
@@ -1333,6 +1341,83 @@ function artifactToMarkdown(kind, spec) {
   return lines.join("\n");
 }
 
+function mountGraphExplorer(svg) {
+  const wrap = document.createElement("div");
+  wrap.className = "graph-explorer";
+  const toolbar = document.createElement("div");
+  toolbar.className = "graph-toolbar";
+  const canvas = document.createElement("div");
+  canvas.className = "graph-canvas";
+  canvas.appendChild(svg);
+
+  let scale = 1, tx = 0, ty = 0;
+  const apply = () => { svg.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; };
+  const clearOpacity = () => {
+    svg.querySelectorAll("[data-node]").forEach((n) => { n.style.opacity = ""; });
+    svg.querySelectorAll("[data-from]").forEach((e) => { e.style.opacity = ""; });
+  };
+  const reset = () => { scale = 1; tx = 0; ty = 0; apply(); clearOpacity(); };
+
+  const mkBtn = (label, title, fn) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = label; b.title = title;
+    b.setAttribute("aria-label", title);
+    b.addEventListener("click", fn);
+    return b;
+  };
+  toolbar.append(
+    mkBtn("＋", "Zoom in", () => { scale = Math.min(3, scale * 1.2); apply(); }),
+    mkBtn("－", "Zoom out", () => { scale = Math.max(0.4, scale / 1.2); apply(); }),
+    mkBtn("⟳", "Reset view", reset),
+  );
+
+  // Click a node to highlight its neighbourhood and dim the rest.
+  const focus = (label) => {
+    const connected = new Set([label]);
+    svg.querySelectorAll("[data-from]").forEach((edge) => {
+      const from = edge.getAttribute("data-from");
+      const to = edge.getAttribute("data-to");
+      const hit = from === label || to === label;
+      if (hit) { connected.add(from); connected.add(to); }
+      edge.style.opacity = hit ? "1" : "0.08";
+    });
+    svg.querySelectorAll("[data-node]").forEach((n) => {
+      n.style.opacity = connected.has(n.getAttribute("data-node")) ? "1" : "0.16";
+    });
+  };
+
+  let dragging = false, moved = false, pressNode = null;
+  let startX = 0, startY = 0, baseX = 0, baseY = 0;
+  canvas.addEventListener("pointerdown", (e) => {
+    dragging = true; moved = false;
+    pressNode = e.target.closest ? e.target.closest("[data-node]") : null;
+    startX = e.clientX; startY = e.clientY; baseX = tx; baseY = ty;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - startX, dy = e.clientY - startY;
+    if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
+    if (moved) { tx = baseX + dx; ty = baseY + dy; apply(); }
+  });
+  canvas.addEventListener("pointerup", () => {
+    if (!dragging) return;
+    dragging = false;
+    if (moved) return;                       // a drag is not a click
+    if (pressNode) focus(pressNode.getAttribute("data-node"));
+    else reset();
+  });
+  canvas.addEventListener("pointercancel", () => { dragging = false; });
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    scale = Math.min(3, Math.max(0.4, scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+    apply();
+  }, { passive: false });
+
+  wrap.append(toolbar, canvas);
+  return wrap;
+}
+
 function downloadBlob(content, filename, type) {
   const url = URL.createObjectURL(new Blob([content], { type }));
   const a = document.createElement("a");
@@ -1355,7 +1440,7 @@ function showArtifact(a) {
 
   if (SVG_RENDERERS[a.kind]) {
     const svg = SVG_RENDERERS[a.kind](a.spec);
-    body.appendChild(svg);
+    body.appendChild(a.kind === "mindgraph" ? mountGraphExplorer(svg) : svg);
     const dl = document.createElement("button");
     dl.type = "button";
     dl.textContent = "⬇ SVG";

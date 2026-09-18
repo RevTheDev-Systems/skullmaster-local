@@ -333,6 +333,19 @@ button:focus-visible, .btn:focus-visible, select:focus-visible, input:focus-visi
 #artifact-body th { background: var(--panel-3); }
 #artifact-body .source-note { margin-top: 12px; color: var(--muted); font-size: 0.84rem; }
 
+/* Knowledge-graph explorer */
+.graph-explorer { position: relative; }
+.graph-toolbar { position: absolute; top: 10px; right: 10px; z-index: 2; display: flex; gap: 6px; }
+.graph-toolbar button {
+  width: 30px; height: 30px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--text); font-size: 14px; line-height: 1; cursor: pointer;
+}
+.graph-toolbar button:hover { border-color: var(--accent); }
+.graph-canvas { overflow: hidden; border-radius: 18px; background: #fff; cursor: grab; touch-action: none; }
+.graph-canvas:active { cursor: grabbing; }
+.graph-canvas svg { transform-origin: center center; will-change: transform; }
+.graph-canvas [data-node] { cursor: pointer; }
+
 /* Library search modal */
 #search-form { display: flex; gap: 10px; padding: 14px 18px 0; }
 #search-input {

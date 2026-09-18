@@ -29,9 +29,11 @@ Sources ──▶ entity extraction (LLM) ──▶ evidence binding (server) �
   type (with the relation type labelled), and shows an entity/relation legend.
   An "Evidence" panel lists node sources and a "Relations" list with their
   evidence, so the graph is navigable and source-grounded rather than decorative.
+- **Graph explorer** — the rendered graph supports pan (drag), zoom (wheel or
+  ＋/－, reset ⟳), and click-to-focus: clicking a node highlights its
+  neighbourhood and dims the rest.
 
 ## Roadmap
 
-The next step is a dedicated graph explorer (pan/zoom, click-to-focus, and
-cross-notebook graphs). Evidence binding is deliberately deterministic and
-local, so the graph stays reproducible.
+Cross-notebook graphs are the remaining increment. Evidence binding is
+deliberately deterministic and local, so the graph stays reproducible.
