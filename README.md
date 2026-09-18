@@ -148,6 +148,9 @@ uv run mypy app               # type check
 # RAG evaluation harness — real retrieval/generation over a fixed corpus:
 uv run python -m app.evaluation              # configured models, throwaway data dir
 uv run python -m app.evaluation --no-generate  # retrieval metrics only (fast)
+
+# Performance benchmarks — startup, discovery, embedding, ingestion, retrieval:
+uv run python -m app.benchmarks --sizes small,medium
 ```
 
 The integration tests run the real FastAPI app against real SQLite/LanceDB in a
@@ -240,6 +243,7 @@ app/
   rag.py           retrieval → grounded prompt → streamed cited answer
   studio.py        podcast + all grounded artifacts (visual and text) + evidence binding
   evaluation.py    deterministic RAG benchmark (python -m app.evaluation)
+  benchmarks.py    local performance benchmarks (python -m app.benchmarks)
   auth.py          password hashing (PBKDF2), server-side sessions, login throttling
   db.py            SQLite metadata (notebooks, sources, messages, audio, artifacts,
                    owner account, sessions)

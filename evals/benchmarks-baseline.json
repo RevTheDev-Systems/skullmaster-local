@@ -1,0 +1,57 @@
+{
+  "environment": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.12.13",
+    "cpu_count": 18,
+    "chat_model": "qwen3:30b",
+    "embed_model": "nomic-embed-text"
+  },
+  "startup": {
+    "seconds": 0.819,
+    "ok": true
+  },
+  "model_discovery": {
+    "models": 4,
+    "cold_seconds": 0.011,
+    "warm_seconds": 0.0032,
+    "show_calls": 4,
+    "list_calls": 2
+  },
+  "embedding": {
+    "texts": 32,
+    "seconds": 0.6403,
+    "texts_per_second": 49.98,
+    "dim": 768
+  },
+  "notebooks": {
+    "small": {
+      "ingestion": {
+        "notebook_id": "17a0c698078c",
+        "chunk_count": 20,
+        "seconds": 0.4798,
+        "chunks_per_second": 41.68
+      },
+      "retrieval": {
+        "queries": 5,
+        "mean_seconds": 0.0214,
+        "p50_seconds": 0.02,
+        "max_seconds": 0.0274
+      }
+    },
+    "medium": {
+      "ingestion": {
+        "notebook_id": "d6b369f26e17",
+        "chunk_count": 200,
+        "seconds": 3.4279,
+        "chunks_per_second": 58.34
+      },
+      "retrieval": {
+        "queries": 5,
+        "mean_seconds": 0.0439,
+        "p50_seconds": 0.0443,
+        "max_seconds": 0.0448
+      }
+    }
+  },
+  "peak_memory_mb": 171.0
+}
