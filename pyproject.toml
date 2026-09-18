@@ -1,6 +1,6 @@
 [project]
 name = "skullmaster-local"
-version = "1.1.0rc1"
+version = "1.1.0"
 description = "SkullMaster iQ: fully local NotebookLM-style app — source-grounded cited chat and audio overviews, powered by Ollama"
 requires-python = ">=3.12"
 dependencies = [

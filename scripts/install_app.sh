@@ -22,7 +22,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key>   <string>SkullMaster iQ</string>
   <key>CFBundleIdentifier</key>    <string>com.skullmaster.iq</string>
   <key>CFBundleVersion</key>       <string>1.1.0</string>
-  <key>CFBundleShortVersionString</key><string>1.1.0-rc.1</string>
+  <key>CFBundleShortVersionString</key><string>1.1.0</string>
   <key>CFBundlePackageType</key>   <string>APPL</string>
   <key>CFBundleExecutable</key>    <string>SkullMaster iQ</string>
   <key>CFBundleIconFile</key>      <string>icon</string>
