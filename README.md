@@ -28,24 +28,74 @@ graphs, documents, slides, video) — running entirely on your machine via
 - **Password-protected** — a sign-in screen guards every route and API endpoint; the password is stored only as a salted PBKDF2 hash on this machine
 - **Themed UI** — dark by default with a light theme one click away, and a mobile layout with a bottom tab bar
 
-## Quick start
+## Install
+
+SkullMaster iQ runs on your own workstation. **macOS is best supported; Linux
+works from the command line; Windows is untested.**
+
+### Prerequisites
+
+| Requirement | Why | Get it |
+|---|---|---|
+| Python 3.12 | runtime | `uv python install 3.12` (uv manages it for you) |
+| [uv](https://docs.astral.sh/uv/) | installs dependencies, runs the app | see the uv install docs |
+| [Ollama](https://ollama.com/download) | local chat + embedding models | install it and keep it running |
+| ~3 GB free disk | default model + embeddings | — |
+
+Optional, per feature — the app runs without them and reports a WARN:
+`ffmpeg` (Video Overviews), Tesseract + `pytesseract`/`pillow` (scanned-PDF OCR),
+and `qwen2.5vl:7b` (diagrams / charts / images).
+
+### One command
 
 ```bash
-# Prereqs: Ollama running, uv installed
-cp .env.example .env      # adjust models if desired
-uv sync
-uv run python -m app      # binds HOST/PORT from .env (default 127.0.0.1:8501)
-# open http://127.0.0.1:8501
+git clone https://github.com/revenueroyllc-stack/skullmaster-local.git
+cd skullmaster-local
+./scripts/setup.sh        # checks prereqs, uv sync, creates .env, pulls models
+uv run python -m app      # then open http://127.0.0.1:8501
 ```
 
-`HOST`/`PORT` come from `.env` and are the single source of truth: the
-`python -m app` entry point, `scripts/launcher.sh`, and its health check all
-read them, so there are no hardcoded addresses to keep in sync.
+`scripts/setup.sh` is idempotent and **never overwrites an existing `.env`**.
+Skip the model download with `SKULLMASTER_SKIP_MODELS=1`, or install the OCR
+extras with `SKULLMASTER_OCR=1`.
 
-On first boot the app checks the models configured in `.env` and pulls any that
-are missing (progress is logged; startup won't silently hang). Kokoro TTS weights
-(~340MB) download once on the first Audio Overview. `scripts/launcher.sh` starts
-the server if needed and opens the UI.
+### Manual steps (what setup.sh does)
+
+```bash
+uv sync                        # install dependencies
+cp .env.example .env           # then edit models/ports if you like
+ollama pull qwen3:4b           # chat model (see the table below)
+ollama pull nomic-embed-text   # embeddings
+uv run python -m app           # binds HOST/PORT from .env
+```
+
+### Choosing a chat model
+
+Set `CHAT_MODEL` in `.env`. Approximate download sizes:
+
+| Model | Size | Notes |
+|---|---|---|
+| `qwen3:4b` | ~2.6 GB | **default** — good balance for most laptops |
+| `qwen3:8b` | ~5.2 GB | stronger answers |
+| `llama3.2:3b` | ~2.0 GB | very light |
+| `phi4` | ~9.1 GB | strong reasoning, no thinking mode |
+| `qwen3:30b` | ~18 GB | best quality; needs a large machine |
+
+Keep `EMBED_MODEL` (`nomic-embed-text`, ~274 MB) unless you intend to re-ingest:
+changing it invalidates every stored vector.
+
+### First run
+
+On first boot the app checks the configured models and pulls any that are missing
+(progress is logged; startup won't silently hang). Kokoro TTS weights (~340 MB)
+download once on the first Audio Overview; Whisper weights download on the first
+video/audio transcription. The first screen asks you to create a password (see
+**Signing in** below).
+
+`HOST`/`PORT` come from `.env` and are the single source of truth: the
+`python -m app` entry point, `scripts/launcher.sh`, and its health check all read
+them. `scripts/launcher.sh` starts the server if needed and opens the UI; on
+macOS, `scripts/install_app.sh` installs an app bundle into `~/Applications`.
 
 ## Signing in
 
@@ -285,6 +335,7 @@ docs/              status, roadmap, security, performance, tools, vision, slides
                    knowledge graph, git history, historical copies, releases/
 data/              runtime state: uploads, LanceDB, SQLite, generated audio/artifacts
 models/            local TTS/STT weights
+scripts/           setup.sh (onboarding) · launcher.sh (start + open) · install_app.sh (macOS app)
 ```
 
 **Citation flow:** retrieval returns the top excerpts; the model must cite them
@@ -364,3 +415,9 @@ Optional future work (see `docs/roadmap.md`): local reranking / query expansion
 
 Intentionally out of scope: Deep Research / web search (the app is closed-world
 by design), and any cloud or telemetry.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Contributions are welcome; see
+[CONTRIBUTING.md](CONTRIBUTING.md). For security reports, see
+[SECURITY.md](SECURITY.md).
