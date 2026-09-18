@@ -69,6 +69,18 @@ ollama pull nomic-embed-text   # embeddings
 uv run python -m app           # binds HOST/PORT from .env
 ```
 
+### Docker (optional)
+
+Run the app in a container while inference stays on the host (Ollama):
+
+```bash
+ollama serve && ollama pull qwen3:4b && ollama pull nomic-embed-text
+docker compose up --build      # open http://127.0.0.1:8501
+```
+
+The image includes ffmpeg and Tesseract; `data/` and `models/` are mounted as
+volumes and the port is published on loopback only. See `docs/docker.md`.
+
 ### Choosing a chat model
 
 Set `CHAT_MODEL` in `.env`. Approximate download sizes:
@@ -343,11 +355,12 @@ static/            three-panel web UI (Sources | Chat | Studio), vanilla JS
 tests/             pytest unit + integration suite (mock providers)
 evals/             RAG corpus + baseline, chunk sweep, performance baseline
 docs/              status, roadmap, security, performance, tools, vision, slides-video,
-                   backup, naming, observability, browser acceptance, ingestion matrix,
-                   knowledge graph, git history, historical copies, releases/
+                   docker, backup, naming, observability, browser acceptance, ingestion
+                   matrix, knowledge graph, git history, historical copies, releases/
 data/              runtime state: uploads, LanceDB, SQLite, generated audio/artifacts
 models/            local TTS/STT weights
 scripts/           setup.sh (onboarding) · launcher.sh (start + open) · install_app.sh (macOS app)
+Dockerfile / docker-compose.yml   container build (inference stays on host Ollama)
 ```
 
 **Citation flow:** retrieval returns the top excerpts; the model must cite them

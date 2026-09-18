@@ -1,0 +1,23 @@
+# Keep the build context small and never bake secrets or runtime data.
+.git
+.github
+.venv
+.venv.pre-rename
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+data
+models
+node_modules
+dist
+build
+tests
+docs
+evals
+.env
+.env.*
+!.env.example
+*.pdf
+.DS_Store
