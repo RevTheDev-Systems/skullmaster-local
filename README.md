@@ -181,7 +181,11 @@ Everything is stored under `data/` (override with `NLM_DATA_DIR`):
 | `data/artifacts/` | Generated spreadsheet .xlsx files |
 | `models/` | Local TTS weights (Kokoro) and Whisper STT weights |
 
-- **Back up:** copy the `data/` directory (it is fully portable).
+- **Back up:** `uv run python -m app.backup create --out ~/backup.zip` — a
+  coherent zip (consistent SQLite snapshot + LanceDB + uploads + audio +
+  artifacts, with a checksummed manifest). Restore with
+  `uv run python -m app.backup restore --archive ~/backup.zip --target DIR`.
+  See `docs/backup-restore.md`; the round trip is verified in `tests/test_backup.py`.
 - **Reset:** stop the server and delete `data/` — it is recreated empty on next start.
 - **Deletion behavior:** removing a source deletes its vectors and stored upload;
   deleting a notebook also removes its chat history, audio files, and metadata.
@@ -237,6 +241,7 @@ app/
   db.py            SQLite metadata (notebooks, sources, messages, audio, artifacts,
                    owner account, sessions)
   diagnostics.py   python -m app.diagnostics
+  backup.py        coherent backup/restore (python -m app.backup)
   __main__.py      python -m app — binds HOST/PORT from config
   main.py          FastAPI endpoints, auth guard middleware, SSE chat streaming
 static/            three-panel web UI (Sources | Chat | Studio), vanilla JS

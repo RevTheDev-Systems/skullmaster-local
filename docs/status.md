@@ -26,6 +26,9 @@ See `README.md` for usage and the architecture overview.
   restart.
 - **Diagnostics** — `python -m app.diagnostics` (config classification, storage,
   SQLite, providers, TTS/STT).
+- **Backup/restore** — `python -m app.backup create|restore`: a coherent,
+  checksummed snapshot of the data directory with path relocation and
+  path-traversal protection; round trip proven in `tests/test_backup.py`.
 - **Engineering gates** — ruff lint/format, mypy, pytest (mock providers), CI
   (`github/workflows/ci.yml`), all green.
 
@@ -43,8 +46,6 @@ See `README.md` for usage and the architecture overview.
   insufficient (never by default).
 - **Richer knowledge graph** — typed entities/relations and cross-notebook
   research on top of the current evidence-bound nodes.
-- **Backup/restore operation** (see the data section of the README as this
-  lands).
 
 ## Out of scope
 
