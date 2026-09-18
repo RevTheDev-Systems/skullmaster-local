@@ -32,10 +32,11 @@ HTML_SUFFIXES = {".html", ".htm"}
 VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"}
 AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac"}
 SHEET_SUFFIXES = {".xlsx", ".xlsm"}
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif"}
 
 # The formal ingestion contract. Kept executable (asserted by tests) so the
-# documented matrix and the parser can't silently drift. OCR is deliberately
-# NOT in this matrix — it is a future capability, never applied by default.
+# documented matrix and the parser can't silently drift. OCR and vision are
+# opt-in enhancements layered on PDF/image parsing, not separate kinds.
 INGESTION_MATRIX = (
     {
         "kind": "pdf",
@@ -85,6 +86,13 @@ INGESTION_MATRIX = (
         "suffixes": tuple(sorted(VIDEO_SUFFIXES)),
         "metadata": "timestamp",
         "citation": "seek",
+        "retry": True,
+    },
+    {
+        "kind": "image",
+        "suffixes": tuple(sorted(IMAGE_SUFFIXES)),
+        "metadata": "none (vision description)",
+        "citation": "passage",
         "retry": True,
     },
 )
@@ -162,6 +170,57 @@ def ocr_image(png: bytes, lang: str = OCR_LANG) -> str:
     return _ocr.ocr_image(png, lang)
 
 
+def vision_available() -> bool:
+    from . import vision as _vision
+
+    return _vision.available()
+
+
+def analyze_image(data: bytes) -> str:
+    from . import vision as _vision
+
+    return _vision.analyze_image(data)
+
+
+def parse_image(path: Path) -> list[tuple[int | None, str]]:
+    """Describe/transcribe a standalone image with the vision model."""
+    try:
+        data = path.read_bytes()
+    except OSError as e:
+        raise IngestError(f"Could not read image: {e}") from e
+    if not data:
+        raise IngestError("File is empty")
+    try:
+        text = analyze_image(data)
+    except Exception as e:
+        raise IngestError(f"Image analysis failed: {e}") from e
+    if not text.strip():
+        raise IngestError("No readable content found in image")
+    return [(None, text.strip())]
+
+
+def _pdf_image_segments(doc, limit: int = 5, min_px: int = 256) -> list[tuple[int, str]]:
+    """Caption/diagram text for embedded images (bounded, vision only)."""
+    out: list[tuple[int, str]] = []
+    if not vision_available():
+        return out
+    for page_number, page in enumerate(doc, start=1):
+        for image in page.get_images(full=True):
+            xref, width, height = image[0], image[2], image[3]
+            if width < min_px or height < min_px:
+                continue
+            try:
+                data = doc.extract_image(xref)["image"]
+                text = analyze_image(data).strip()
+            except Exception:
+                continue  # one unreadable image shouldn't fail the document
+            if text:
+                out.append((page_number, f"Image on page {page_number}: {text}"))
+            if len(out) >= limit:
+                return out
+    return out
+
+
 def _ocr_pages(doc, pages: list[tuple[int, str]]) -> list[tuple[int, str]]:
     """OCR only the pages with no text layer; text pages are left untouched."""
     out: list[tuple[int, str]] = []
@@ -192,6 +251,7 @@ def parse_pdf(path: Path) -> list[tuple[int | None, str]]:
             if pages and ocr_configured() and ocr_available() and needs_ocr:
                 pages = _ocr_pages(doc, pages)
             segments = [(i, text) for i, text in pages if text]
+            segments += _pdf_image_segments(doc)  # diagrams/charts, if vision is on
     except IngestError:
         raise
     except Exception as e:
@@ -356,9 +416,18 @@ def parse_file(path: Path) -> tuple[str, int | None, list[tuple[int | None, str]
         return "audio", None, parse_media(path)
     if suffix in HTML_SUFFIXES:
         return "html", None, parse_html(path)
+    if suffix in IMAGE_SUFFIXES:
+        return "image", None, parse_image(path)
     if suffix in TEXT_SUFFIXES or suffix == "":
         return "text", None, parse_text_file(path)
     supported = ".pdf, .docx, " + ", ".join(
-        sorted(TEXT_SUFFIXES | HTML_SUFFIXES | SHEET_SUFFIXES | VIDEO_SUFFIXES | AUDIO_SUFFIXES)
+        sorted(
+            TEXT_SUFFIXES
+            | HTML_SUFFIXES
+            | SHEET_SUFFIXES
+            | VIDEO_SUFFIXES
+            | AUDIO_SUFFIXES
+            | IMAGE_SUFFIXES
+        )
     )
     raise IngestError(f"Unsupported file type: {suffix} (supported: {supported})")

@@ -1032,6 +1032,14 @@ MEDIA_TYPES = {
     ".flac": "audio/flac",
     ".ogg": "audio/ogg",
     ".aac": "audio/aac",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".tiff": "image/tiff",
+    ".tif": "image/tiff",
 }
 
 

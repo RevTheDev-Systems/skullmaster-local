@@ -20,7 +20,7 @@ TEST_PASSWORD = "test-password-1234"
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import db, ingest, main, rag, slides, store, studio, video  # noqa: E402
+from app import db, ingest, main, rag, slides, store, studio, video, vision  # noqa: E402
 
 
 class MockLLM:
@@ -40,7 +40,25 @@ class MockLLM:
             raise RuntimeError("mock embedding backend down")
         return [self._vec(t) for t in texts]
 
+    def route_plan(self, capability="chat", *, min_context=None):
+        if capability == "vision":
+            return {
+                "model": "mock-vision",
+                "backend": "mock",
+                "capability": "vision",
+                "reason": "mock",
+                "alternatives": [],
+            }
+        return {
+            "model": self.chat_model,
+            "capability": capability,
+            "reason": "mock",
+            "alternatives": [],
+        }
+
     def chat(self, messages, stream=False):
+        if any(isinstance(m, dict) and m.get("images") for m in messages):
+            return "Mock image: a bar chart titled Revenue with values 1, 2, 3."
         system = messages[0]["content"] if messages else ""
         if stream:
             user = messages[-1]["content"]
@@ -248,7 +266,7 @@ def mock_llm(monkeypatch):
     llm = MockLLM()
     tts = MockTTS()
     stt = MockSTT()
-    for mod in (main, rag, store, studio, ingest, slides, video):
+    for mod in (main, rag, store, studio, ingest, slides, video, vision):
         if hasattr(mod, "get_llm"):
             monkeypatch.setattr(mod, "get_llm", lambda llm=llm: llm)
         if hasattr(mod, "get_tts"):

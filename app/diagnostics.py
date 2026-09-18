@@ -14,7 +14,7 @@ import socket
 import sys
 import tempfile
 
-from . import db, ocr, store
+from . import db, ocr, store, vision
 from .config import (
     APP_VERSION,
     AUDIO_DIR,
@@ -238,6 +238,16 @@ def main() -> int:
             "no OCR engine installed",
             "brew install tesseract && uv pip install pytesseract pillow "
             "(or set OCR_ENABLED=false to silence this)",
+        )
+
+    print("\nVision (optional, diagrams/charts/images)")
+    if vision.available():
+        check("vision", True, "a vision-capable model is installed")
+    else:
+        warn(
+            "vision",
+            "no vision-capable model installed",
+            "ollama pull qwen2.5vl:7b to read diagrams/charts/images",
         )
 
     print("\nServer")

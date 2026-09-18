@@ -327,6 +327,7 @@ button:focus-visible, .btn:focus-visible, select:focus-visible, input:focus-visi
 #media-body { padding: 16px; }
 #media-body video, #media-body audio { width: 100%; }
 #media-body video { max-height: 68vh; border-radius: 18px; background: #000; }
+#media-body .media-image { width: 100%; border-radius: 18px; background: #fff; }
 #artifact-body svg { width: 100%; height: auto; background: #fff; border-radius: 18px; }
 #artifact-body table { width: 100%; border-collapse: collapse; }
 #artifact-body th, #artifact-body td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; }

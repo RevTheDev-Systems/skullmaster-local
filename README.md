@@ -9,6 +9,7 @@ via [Ollama](https://ollama.com). No cloud APIs, no telemetry, no tracking.
 - **Notebooks & sources** — upload PDF, DOCX, TXT/MD, XLSX, video, or audio files, or add URLs; multiple sources per notebook
 - **Video & audio sources** — uploads are transcribed locally with Whisper, playable in-app, and fully searchable in chat; media citations carry timestamps and a "Play from" button that seeks the player to the cited moment
 - **Scanned PDFs (optional OCR)** — if a PDF has no text layer and Tesseract is installed, its pages are OCR'd into the normal pipeline; text PDFs are never OCR'd, and without an engine the app behaves as before
+- **Diagrams & images (optional vision)** — image files (`.png .jpg .jpeg .webp .gif .bmp .tiff .tif`) and images embedded in PDFs are transcribed/described by a vision-capable local model (`qwen2.5vl:7b`) into searchable, citable text; citations open a **View image** viewer
 - **Closed-world RAG chat** — answers come ONLY from your sources; off-corpus questions are declined instead of hallucinated
 - **Cross-notebook research** — flip on **All notebooks** in the chat bar to answer across your whole library; retrieval is merged with a diversity pass so one notebook can't dominate, and citations name the notebook they came from (research answers are transient, not saved to a notebook)
 - **Library search** — 🔍 Search every notebook at once (semantic + keyword); results are grouped by notebook and open the exact passage, jumping to that notebook
@@ -253,6 +254,7 @@ app/
                    (trafilatura + fallback), text, video/audio (Whisper),
                    hardened URL fetch; failures normalized to IngestError
   ocr.py           optional Tesseract OCR for text-less PDF pages (never default)
+  vision.py        optional vision model reads diagrams/charts/images
   chunker.py       paragraph-packing chunker (~800 tok, overlap), page metadata
   store.py         LanceDB vector store + BM25, RRF hybrid search, library search
   rag.py           retrieval → grounded prompt → streamed cited answer; research

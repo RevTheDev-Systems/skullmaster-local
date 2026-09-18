@@ -36,6 +36,10 @@ See `README.md` for usage and the architecture overview.
 - **OCR (optional)** — scanned PDF pages are OCR'd only when a PDF's text layer
   is insufficient and a Tesseract engine is installed; never applied to text
   PDFs or by default. See `docs/ingestion-matrix.md`.
+- **Vision-document understanding** — image sources and images embedded in PDFs
+  are transcribed/described by a vision-capable local model (`qwen2.5vl:7b`
+  installed) and flow into retrieval/citations; opt-in, bounded, and it never
+  changes the active chat model. See `docs/vision.md`.
 - **Slides & Video Overview** — a grounded slide deck (with an in-app navigator)
   and a narrated MP4 built from it (slide images + local TTS, muxed with ffmpeg;
   requires `ffmpeg` on PATH).
@@ -57,9 +61,6 @@ See `README.md` for usage and the architecture overview.
 - **MLX capability inference** — reasoning support for MLX models is inferred
   from naming hints because `/v1/models` exposes no capabilities; treat
   `can_reason` for MLX as a heuristic.
-- **Vision groundwork** — `qwen2.5vl:7b` (6.0 GB) is installed and reported by the
-  router (`route_plan("vision")`), so vision-document understanding can be built
-  next; the feature itself is not implemented yet.
 - **Retrieval tuning** — fusion weighting is tuned (BM25 1.5 lifted recall@3 to
   1.0) and a chunk size/overlap sweep (`--sweep`) shows all configurations
   identical on the current corpus (saturated). Reranking/query expansion remain
@@ -67,11 +68,10 @@ See `README.md` for usage and the architecture overview.
 
 ## Planned
 
-See `docs/roadmap.md` for the full post-v1 plan. Highlights:
-
-- **Richer knowledge graph** on top of the current evidence-bound nodes.
-- **Semantic notebook search** and an expanded capability router.
-- Further **retrieval tuning** driven by the committed RAG benchmark.
+See `docs/roadmap.md`. The rich knowledge graph, semantic search, capability
+router, tool layer, and vision-document understanding are delivered; remaining
+items are source-scoped tools/multi-step tool budgets, reranking/query expansion
+on a larger corpus, and a saved standalone graph workspace.
 
 ## Out of scope
 

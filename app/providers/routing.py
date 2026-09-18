@@ -250,6 +250,22 @@ class RoutingProvider:
             "alternatives": [m["name"] for m in models if m["name"] != model["name"]][:5],
         }
 
+    def chat_with(self, model: str, messages: list[dict], stream: bool = False):
+        """One-off chat with a specific model, restoring the active model after.
+
+        Used by vision (and other capability-scoped consumers) so a specialist
+        model can be invoked without changing the user's chosen chat model.
+        """
+        backend_name, bare = split(model)
+        backend = self._backend(backend_name)
+        previous = self.chat_model
+        backend.set_chat_model(bare)
+        try:
+            return backend.chat(messages, stream=stream)
+        finally:
+            prev_backend, prev_model = split(previous)
+            self._backend(prev_backend).set_chat_model(prev_model)
+
     def registry(self, refresh: bool = False) -> dict:
         """Provider + model registry for the picker and diagnostics."""
         return {

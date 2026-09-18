@@ -15,6 +15,7 @@ URL, sign in with the owner password).
 | 3 | Create/rename notebook | appears in picker | automated (API) · browser manual |
 | 4 | Upload each format (PDF/DOCX/XLSX/TXT/MD/HTML) | source indexed, `ready` | automated (`test_ingest`) |
 | 5 | Upload audio/video | transcript with timestamps | automated (media, STT mocked) |
+| 5b | Upload an image / PDF with diagrams | vision text indexed; citation opens **View image** | automated (vision mocked) · browser manual |
 | 6 | Ask a question | streamed answer with clickable `[n]` chips | automated (API) · browser manual |
 | 6b | Enable **All notebooks**, ask | answer across the library, citations name the notebook | automated (`/api/research`) · browser manual |
 | 6c | Landing page: **Create account** ↔ **Return to logon** | switches between setup and sign-in | automated (`test_auth`) · browser manual |

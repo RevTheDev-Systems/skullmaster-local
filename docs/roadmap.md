@@ -45,9 +45,9 @@ subsystems plus the model fabric:
 
 ## Longer term (separate pipelines, deliberate)
 
-- **Vision-document understanding** — 🟡 groundwork ready: `qwen2.5vl:7b` is
-  installed and routable for the `vision` capability; the ingestion/analysis
-  feature that uses it (diagrams/charts/images inside documents) is next.
+- **Vision-document understanding** — ✅ delivered: image sources and images
+  embedded in PDFs are transcribed/described by a vision-capable local model
+  (`qwen2.5vl:7b`) and flow into retrieval/citations (`docs/vision.md`).
 - **Slides and Video Overviews** — ✅ delivered as distinct pipelines
   (`slides.py`, `video.py`), not bolted onto `studio.py`: grounded decks + a
   navigator, and a narrated MP4 (slide images + local TTS, muxed with ffmpeg).

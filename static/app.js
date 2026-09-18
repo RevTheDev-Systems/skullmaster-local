@@ -259,7 +259,8 @@ function fmtTime(seconds) {
 }
 
 const KIND_ICONS = {
-  pdf: "📕", url: "🔗", docx: "📘", sheet: "📊", video: "🎬", audio: "🎵", text: "📄",
+  pdf: "📕", url: "🔗", docx: "📘", sheet: "📊", video: "🎬", audio: "🎵",
+  image: "🖼️", text: "📄",
 };
 
 $("#nb-select").addEventListener("change", async (e) => {
@@ -516,9 +517,11 @@ $("#chat-clear").addEventListener("click", async () => {
 });
 
 function showCitation(c) {
-  const isMedia = c.kind === "video" || c.kind === "audio";
+  const isPlayable = c.kind === "video" || c.kind === "audio";
+  const isImage = c.kind === "image";
+  const isMedia = isPlayable || isImage;
   const prefix = c.notebook_name ? `${c.notebook_name} › ` : "";
-  const where = isMedia && c.page != null
+  const where = isPlayable && c.page != null
     ? `${c.source_name} — at ${fmtTime(c.page)}`
     : c.page ? `${c.source_name} — page ${c.page}` : c.source_name;
   $("#modal-title").textContent = prefix + where;
@@ -526,7 +529,7 @@ function showCitation(c) {
   const play = $("#modal-play");
   play.hidden = !isMedia;
   if (isMedia) {
-    play.textContent = `▶ Play from ${fmtTime(c.page || 0)}`;
+    play.textContent = isPlayable ? `▶ Play from ${fmtTime(c.page || 0)}` : "🖼️ View image";
     play.onclick = () => {
       closeModal();
       openMedia(c.source_id, c.source_name, c.kind, c.page || 0);
@@ -546,6 +549,17 @@ function openMedia(sourceId, name, kind, seekSeconds) {
   $("#media-title").textContent = name;
   const body = $("#media-body");
   body.innerHTML = "";
+  if (kind === "image") {
+    const img = document.createElement("img");
+    img.className = "media-image";
+    img.src = `/api/media/${sourceId}`;
+    img.alt = name;
+    img.addEventListener("error", () => toast("Could not load image"));
+    body.appendChild(img);
+    $("#media-backdrop").hidden = false;
+    $("#media-close").focus();
+    return;
+  }
   const el = document.createElement(kind === "video" ? "video" : "audio");
   el.controls = true;
   el.src = `/api/media/${sourceId}`;

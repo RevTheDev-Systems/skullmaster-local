@@ -14,6 +14,7 @@ drift. Every row has both a positive and a negative fixture.
 | URL (http/https)  | Yes   | origin URL       | passage  | Yes             |
 | Audio             | Yes   | timestamp        | seek     | Yes             |
 | Video             | Yes   | timestamp        | seek     | Yes             |
+| Image             | Yes   | vision text      | passage  | Yes             |
 
 ## Policies
 
@@ -48,3 +49,10 @@ OCR is an **off-by-default capability**, not a general PDF path:
   engine is installed).
 - OCR text is normalized into pages and fed through the existing chunk/retrieval
   pipeline, so citations keep their page numbers.
+
+## Optional: vision for diagrams/charts/images
+
+Standalone image uploads and images embedded in PDFs are read by a
+vision-capable model and turned into text (see `docs/vision.md`). It is opt-in in
+the same way: it needs a vision model installed, it is bounded (one call per
+image; up to five PDF images), and one unreadable image never fails the document.
