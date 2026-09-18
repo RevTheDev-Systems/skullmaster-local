@@ -355,8 +355,9 @@ static/            three-panel web UI (Sources | Chat | Studio), vanilla JS
 tests/             pytest unit + integration suite (mock providers)
 evals/             RAG corpus + baseline, chunk sweep, performance baseline
 docs/              status, roadmap, security, performance, tools, vision, slides-video,
-                   docker, backup, naming, observability, browser acceptance, ingestion
-                   matrix, knowledge graph, git history, historical copies, releases/
+                   docker, releasing, backup, naming, observability, browser acceptance,
+                   ingestion matrix, knowledge graph, git history, historical copies,
+                   releases/
 data/              runtime state: uploads, LanceDB, SQLite, generated audio/artifacts
 models/            local TTS/STT weights
 scripts/           setup.sh (onboarding) · launcher.sh (start + open) · install_app.sh (macOS app)
