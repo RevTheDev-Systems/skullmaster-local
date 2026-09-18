@@ -754,7 +754,7 @@ const RELATION_STYLES = {
 };
 const ART_ICONS = {
   chart: "📊", infographic: "🪧", spreadsheet: "📋", mindgraph: "🧠",
-  comparison: "⚖️",
+  comparison: "⚖️", slides: "🖼️", video: "🎬",
   briefing: "📄", study_guide: "🎓", faq: "❓", timeline: "🕒", source_summary: "📝",
 };
 const SVG_RENDERERS = {
@@ -1312,6 +1312,86 @@ function renderEvidence(artifact) {
   return wrap;
 }
 
+// ---- slides + video overview ----
+
+function renderSlides(spec) {
+  const wrap = document.createElement("div");
+  wrap.className = "slide-viewer";
+  let index = 0;
+
+  const heading = document.createElement("h3");
+  heading.textContent = spec.title;
+  const stage = document.createElement("div");
+  stage.className = "slide-stage";
+  const counter = document.createElement("span");
+  counter.className = "slide-counter";
+
+  const draw = () => {
+    const slide = spec.slides[index];
+    stage.innerHTML = "";
+    const title = document.createElement("h2");
+    title.textContent = slide.title;
+    const ul = document.createElement("ul");
+    for (const bullet of slide.bullets) {
+      const li = document.createElement("li");
+      li.textContent = bullet;
+      ul.appendChild(li);
+    }
+    stage.append(title, ul);
+    if (slide.notes) {
+      const notes = document.createElement("p");
+      notes.className = "slide-notes";
+      notes.textContent = slide.notes;
+      stage.appendChild(notes);
+    }
+    counter.textContent = `${index + 1} / ${spec.slides.length}`;
+  };
+
+  const prev = document.createElement("button");
+  prev.type = "button"; prev.textContent = "◀"; prev.setAttribute("aria-label", "Previous slide");
+  const next = document.createElement("button");
+  next.type = "button"; next.textContent = "▶"; next.setAttribute("aria-label", "Next slide");
+  prev.addEventListener("click", () => { index = (index - 1 + spec.slides.length) % spec.slides.length; draw(); });
+  next.addEventListener("click", () => { index = (index + 1) % spec.slides.length; draw(); });
+
+  const nav = document.createElement("div");
+  nav.className = "slide-nav";
+  nav.append(prev, counter, next);
+  wrap.append(heading, stage, nav);
+
+  const onKey = (e) => {
+    if (!document.body.contains(wrap)) { document.removeEventListener("keydown", onKey); return; }
+    if (e.key === "ArrowLeft") prev.click();
+    if (e.key === "ArrowRight") next.click();
+  };
+  document.addEventListener("keydown", onKey);
+  draw();
+  return wrap;
+}
+
+function deckMarkdown(deck) {
+  const lines = [`# ${deck.title}`, ""];
+  deck.slides.forEach((slide, i) => {
+    lines.push(`## ${i + 1}. ${slide.title}`, "");
+    slide.bullets.forEach((b) => lines.push(`- ${b}`));
+    if (slide.notes) lines.push("", `> ${slide.notes}`);
+    lines.push("");
+  });
+  return lines.join("\n");
+}
+
+function renderSlideOutline(spec) {
+  const wrap = document.createElement("div");
+  wrap.className = "slide-outline";
+  spec.slides.forEach((slide, i) => {
+    const line = document.createElement("div");
+    line.className = "slide-outline-row";
+    line.textContent = `${i + 1}. ${slide.title}`;
+    wrap.appendChild(line);
+  });
+  return wrap;
+}
+
 function artifactToMarkdown(kind, spec) {
   const lines = [`# ${spec.title}`, ""];
   if (kind === "briefing") {
@@ -1484,6 +1564,30 @@ function showArtifact(a) {
       x.setAttribute("aria-label", "Download as Excel file");
       actions.appendChild(x);
     }
+  } else if (a.kind === "slides") {
+    body.appendChild(renderSlides(a.spec));
+    const md = document.createElement("button");
+    md.type = "button";
+    md.textContent = "⬇ Markdown";
+    md.setAttribute("aria-label", "Download as Markdown");
+    md.addEventListener("click", () => downloadBlob(
+      deckMarkdown(a.spec), `${slug(a.title)}.md`, "text/markdown"));
+    actions.appendChild(md);
+  } else if (a.kind === "video") {
+    const video = document.createElement("video");
+    video.controls = true;
+    video.className = "video-player";
+    if (a.file_url) video.src = a.file_url;
+    body.appendChild(video);
+    if (a.spec && a.spec.slides) body.appendChild(renderSlideOutline(a.spec));
+    if (a.file_url) {
+      const dl = document.createElement("a");
+      dl.className = "audio-download";
+      dl.href = a.file_url;
+      dl.textContent = "⬇ MP4";
+      dl.setAttribute("download", `${slug(a.title)}.mp4`);
+      actions.appendChild(dl);
+    }
   } else if (TEXT_RENDERERS[a.kind]) {
     body.appendChild(TEXT_RENDERERS[a.kind](a.spec));
     const md = document.createElement("button");
@@ -1548,7 +1652,7 @@ function updateStudioEmpty() {
 const KIND_LABELS = {
   chart: "Chart", infographic: "Infographic",
   spreadsheet: "Spreadsheet", mindgraph: "Mind Graph",
-  comparison: "Source Comparison",
+  comparison: "Source Comparison", slides: "Slides", video: "Video Overview",
   briefing: "Briefing", study_guide: "Study Guide", faq: "FAQ",
   timeline: "Timeline", source_summary: "Source Summary",
 };
@@ -1563,7 +1667,13 @@ for (const btn of document.querySelectorAll(".artifact-buttons button")) {
     prog.hidden = false;
     prog.textContent = `Generating ${KIND_LABELS[kind].toLowerCase()} from your sources…`;
     try {
-      const artifact = await api(`/api/notebooks/${state.current}/artifacts`, {
+      // Slides and video overviews are their own pipelines/endpoints.
+      const url = kind === "slides"
+        ? `/api/notebooks/${state.current}/slides`
+        : kind === "video"
+          ? `/api/notebooks/${state.current}/video-overview`
+          : `/api/notebooks/${state.current}/artifacts`;
+      const artifact = await api(url, {
         method: "POST",
         body: JSON.stringify({ kind }),
       });

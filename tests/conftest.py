@@ -20,7 +20,7 @@ TEST_PASSWORD = "test-password-1234"
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import db, ingest, main, rag, store, studio  # noqa: E402
+from app import db, ingest, main, rag, slides, store, studio, video  # noqa: E402
 
 
 class MockLLM:
@@ -141,6 +141,20 @@ class MockLLM:
                     "source_note": "mock sources",
                 }
             )
+        if "slide deck" in system:
+            return json.dumps(
+                {
+                    "title": "Mock Deck",
+                    "slides": [
+                        {
+                            "title": f"Slide {i}",
+                            "bullets": ["first point", "second point"],
+                            "notes": "A short spoken line.",
+                        }
+                        for i in range(1, 5)
+                    ],
+                }
+            )
         if "compare sources" in system:
             return json.dumps(
                 {
@@ -232,7 +246,7 @@ def mock_llm(monkeypatch):
     llm = MockLLM()
     tts = MockTTS()
     stt = MockSTT()
-    for mod in (main, rag, store, studio, ingest):
+    for mod in (main, rag, store, studio, ingest, slides, video):
         if hasattr(mod, "get_llm"):
             monkeypatch.setattr(mod, "get_llm", lambda llm=llm: llm)
         if hasattr(mod, "get_tts"):

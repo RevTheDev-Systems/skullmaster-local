@@ -901,6 +901,55 @@ def artifacts_create(notebook_id: str, body: ArtifactIn):
     return _artifact_out(row)
 
 
+@app.post("/api/notebooks/{notebook_id}/slides")
+def slides_create(notebook_id: str):
+    """Generate a grounded slide deck for a notebook."""
+    if not db.get_notebook(notebook_id):
+        raise HTTPException(404, "Notebook not found")
+    from . import slides
+
+    with _job(notebook_id, "slides"):
+        try:
+            deck = slides.generate_deck(notebook_id)
+        except slides.StudioError as e:
+            raise HTTPException(422, str(e))
+        except Exception as e:
+            log.exception("Slide deck generation failed")
+            raise HTTPException(503, f"Could not generate slides: {e}")
+    row = db.create_artifact(notebook_id, "slides", deck["title"], json.dumps(deck), None)
+    return _artifact_out(row)
+
+
+@app.post("/api/notebooks/{notebook_id}/video-overview")
+def video_overview_create(notebook_id: str):
+    """Build a narrated Video Overview (grounded slides + TTS + ffmpeg)."""
+    if not db.get_notebook(notebook_id):
+        raise HTTPException(404, "Notebook not found")
+    from . import studio, video
+
+    with _job(notebook_id, "video"):
+        try:
+            meta = video.build_video_overview(notebook_id)
+        except studio.StudioError as e:
+            raise HTTPException(422, str(e))
+        except Exception as e:
+            log.exception("Video overview failed")
+            raise HTTPException(503, f"Could not build the video overview: {e}")
+    spec = {
+        "slides": meta["slides"],
+        "duration_seconds": meta["duration_seconds"],
+        "source_note": "",
+    }
+    row = db.create_artifact(
+        notebook_id,
+        "video",
+        meta["title"],
+        json.dumps(spec),
+        str(ARTIFACTS_DIR / meta["filename"]),
+    )
+    return _artifact_out(row)
+
+
 @app.delete("/api/notebooks/{notebook_id}/artifacts/{artifact_id}")
 def artifacts_delete(notebook_id: str, artifact_id: str):
     artifact = db.get_artifact(artifact_id)
@@ -911,6 +960,15 @@ def artifacts_delete(notebook_id: str, artifact_id: str):
     return {"ok": True}
 
 
+_ARTIFACT_MEDIA = {
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".mp4": "video/mp4",
+    ".wav": "audio/wav",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+}
+
+
 @app.get("/api/artifacts/{artifact_id}/file")
 def artifact_file(artifact_id: str):
     artifact = db.get_artifact(artifact_id)
@@ -919,11 +977,12 @@ def artifact_file(artifact_id: str):
     path = Path(artifact["file_path"])
     if path.parent != ARTIFACTS_DIR or not path.exists():
         raise HTTPException(404, "Artifact file not found")
-    safe_title = re.sub(r"[^\w\- ]", "_", artifact["title"])[:60] or "spreadsheet"
+    safe_title = re.sub(r"[^\w\- ]", "_", artifact["title"])[:60] or "artifact"
+    suffix = path.suffix.lower()
     return FileResponse(
         path,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"{safe_title}.xlsx",
+        media_type=_ARTIFACT_MEDIA.get(suffix, "application/octet-stream"),
+        filename=f"{safe_title}{suffix}",
     )
 
 

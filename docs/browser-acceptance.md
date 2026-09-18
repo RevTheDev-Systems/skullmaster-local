@@ -26,6 +26,8 @@ URL, sign in with the owner password).
 | 10 | Chart / Infographic / Spreadsheet | rendered, downloadable | automated (API) · browser manual |
 | 11 | Mind Graph | typed radial graph, Evidence list, pan/zoom, click-to-focus | automated (API) · browser manual |
 | 12 | Text artifacts (briefing/study guide/FAQ/timeline/summary) | rendered, Markdown download | automated (API) · browser manual |
+| 12b | Slides | navigator (◀ ▶, arrow keys), Markdown download | automated (API) · browser manual |
+| 12c | Video Overview | narrated MP4 plays in-app (requires ffmpeg) | automated (API, real ffmpeg) · browser manual |
 | 13 | Delete source / artifact / notebook | gone, files cleaned | automated (API) |
 | 14 | Restart the server | notebooks, chat, artifacts persist | automated (API restart) |
 

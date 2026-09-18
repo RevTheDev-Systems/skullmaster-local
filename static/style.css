@@ -333,6 +333,29 @@ button:focus-visible, .btn:focus-visible, select:focus-visible, input:focus-visi
 #artifact-body th { background: var(--panel-3); }
 #artifact-body .source-note { margin-top: 12px; color: var(--muted); font-size: 0.84rem; }
 
+/* Slides + video overview */
+.slide-viewer { text-align: left; }
+.slide-viewer > h3 { margin: 0 0 12px; font-size: 16px; }
+.slide-stage {
+  min-height: 220px; padding: 24px 26px; border-radius: 18px;
+  background: linear-gradient(135deg, #eef2ff, #ffffff);
+  color: #1f2430; border: 1px solid var(--border);
+}
+.slide-stage h2 { margin: 0 0 14px; font-size: 22px; }
+.slide-stage ul { margin: 0; padding-left: 20px; }
+.slide-stage li { margin: 6px 0; font-size: 14.5px; line-height: 1.5; }
+.slide-notes { margin: 16px 0 0; font-size: 13px; color: #5f6774; font-style: italic; }
+.slide-nav { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 12px; }
+.slide-nav button {
+  width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--text); cursor: pointer;
+}
+.slide-nav button:hover { border-color: var(--accent); }
+.slide-counter { font-size: 13px; color: var(--muted); min-width: 54px; text-align: center; }
+.slide-outline { margin-top: 16px; text-align: left; font-size: 13px; color: var(--muted); }
+.slide-outline-row { padding: 3px 0; }
+.video-player { width: 100%; border-radius: 18px; background: #000; }
+
 /* Knowledge-graph explorer */
 .graph-explorer { position: relative; }
 .graph-toolbar { position: absolute; top: 10px; right: 10px; z-index: 2; display: flex; gap: 6px; }

@@ -36,6 +36,9 @@ See `README.md` for usage and the architecture overview.
 - **OCR (optional)** — scanned PDF pages are OCR'd only when a PDF's text layer
   is insufficient and a Tesseract engine is installed; never applied to text
   PDFs or by default. See `docs/ingestion-matrix.md`.
+- **Slides & Video Overview** — a grounded slide deck (with an in-app navigator)
+  and a narrated MP4 built from it (slide images + local TTS, muxed with ffmpeg;
+  requires `ffmpeg` on PATH).
 - **Diagnostics** — `python -m app.diagnostics` (config classification, storage,
   SQLite, providers, TTS/STT, OCR).
 - **Backup/restore** — `python -m app.backup create|restore`: a coherent,
@@ -64,6 +67,5 @@ See `docs/roadmap.md` for the full post-v1 plan. Highlights:
 
 ## Out of scope
 
-- Video Overviews and slide decks.
 - Deep Research / web search (closed-world by design).
 - Cloud/telemetry of any kind.

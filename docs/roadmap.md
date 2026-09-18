@@ -46,8 +46,9 @@ subsystems plus the model fabric:
 ## Longer term (separate pipelines, deliberate)
 
 - **Vision-document understanding** — diagrams/charts/images inside documents.
-- **Slides and Video Overviews** — distinct rendering pipelines, explicitly not
-  bolted onto `studio.py`.
+- **Slides and Video Overviews** — ✅ delivered as distinct pipelines
+  (`slides.py`, `video.py`), not bolted onto `studio.py`: grounded decks + a
+  navigator, and a narrated MP4 (slide images + local TTS, muxed with ffmpeg).
 - **Controlled tool-using research workflows** — bounded, auditable tools under
   the same local-first, source-grounded rules.
 

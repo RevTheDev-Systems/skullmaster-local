@@ -756,3 +756,72 @@ def test_knowledge_graph_explorer_is_wired():
         assert marker in js, marker
     css = (static / "style.css").read_text(encoding="utf-8")
     assert ".graph-canvas" in css and ".graph-toolbar" in css
+
+
+# ---------- slides ----------
+
+
+def test_slides_validate_and_render(tmp_path):
+    from app import slides
+
+    deck = slides.validate_deck(
+        {
+            "title": "Deck",
+            "slides": [
+                {"title": "One", "bullets": ["a", "b"]},
+                {"title": "Two", "bullets": ["c"]},
+                {"title": "Three", "bullets": ["d"], "notes": "spoken line"},
+            ],
+        }
+    )
+    assert len(deck["slides"]) == 3
+    assert deck["slides"][2]["notes"] == "spoken line"
+
+    png = slides.render_slide_png(deck, 0, tmp_path / "slide0.png")
+    assert png.exists() and png.stat().st_size > 1000
+    import fitz
+
+    with fitz.open(png) as doc:  # renders as a valid single-page image
+        assert doc.page_count == 1
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"title": "D", "slides": []},
+        {"title": "D", "slides": [{"title": "t", "bullets": []}]},
+        {"title": "D", "slides": [{"title": "t", "bullets": ["x"], "notes": 5}]},
+        {"slides": [{"title": "t", "bullets": ["x"]}]},
+    ],
+)
+def test_slides_validation_rejects_bad_shapes(bad):
+    from app import slides
+
+    with pytest.raises(slides.ModelOutputError):
+        slides.validate_deck(bad)
+
+
+def test_slides_api_generates_deck(client, notebook):
+    _seed(client, notebook["id"])
+    res = client.post(f"/api/notebooks/{notebook['id']}/slides")
+    assert res.status_code == 200, res.text
+    art = res.json()
+    assert art["kind"] == "slides" and art["title"] == "Mock Deck"
+    assert len(art["spec"]["slides"]) == 4
+
+
+# ---------- video overview (needs ffmpeg) ----------
+
+
+@pytest.mark.skipif(__import__("shutil").which("ffmpeg") is None, reason="ffmpeg is not installed")
+def test_video_overview_api_builds_mp4(client, notebook):
+    _seed(client, notebook["id"])
+    res = client.post(f"/api/notebooks/{notebook['id']}/video-overview")
+    assert res.status_code == 200, res.text
+    art = res.json()
+    assert art["kind"] == "video" and art["file_url"].endswith("/file")
+    assert art["spec"]["slides"] and art["spec"]["duration_seconds"] >= 4
+    # the mp4 is served with the right media type
+    media = client.get(art["file_url"])
+    assert media.status_code == 200
+    assert media.headers["content-type"].startswith("video/mp4")
