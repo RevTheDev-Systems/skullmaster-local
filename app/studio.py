@@ -234,6 +234,29 @@ ARTIFACT_PROMPTS = {
 
 TEXT_ARTIFACT_KINDS = ("briefing", "study_guide", "faq", "timeline", "source_summary")
 
+# Knowledge-graph vocabularies (kept small and controlled so the model's output
+# is normalizable and the renderer can colour/type nodes and edges reliably).
+ENTITY_TYPES = (
+    "concept",
+    "organization",
+    "person",
+    "location",
+    "date",
+    "metric",
+    "event",
+    "document",
+)
+RELATION_TYPES = (
+    "related_to",
+    "part_of",
+    "causes",
+    "measures",
+    "located_at",
+    "enables",
+    "contradicts",
+    "precedes",
+)
+
 
 def _clean_str(value, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
@@ -356,16 +379,34 @@ def _validate_artifact_spec(kind: str, spec: dict) -> dict:
             labels.update(children[:6])
         spec["root"] = root.strip()
         spec["branches"] = clean_branches
+
+        # Optional typed entities: keep only known labels with a known type.
+        raw_types = spec.get("node_types") or {}
+        if not isinstance(raw_types, dict):
+            raise ModelOutputError("node_types must be an object")
+        spec["node_types"] = {
+            label: etype
+            for label, etype in raw_types.items()
+            if label in labels and etype in ENTITY_TYPES
+        }
+
         # Drop cross-links that don't resolve to real nodes — the renderer can
-        # only draw an edge between nodes it actually placed.
+        # only draw an edge between nodes it actually placed. Unknown relation
+        # types normalise to "related_to".
         links = []
         for link in spec.get("links") or []:
             if not isinstance(link, dict):
                 continue
             src, dst = str(link.get("from", "")).strip(), str(link.get("to", "")).strip()
             if src in labels and dst in labels and src != dst:
+                rtype = link.get("type")
                 links.append(
-                    {"from": src, "to": dst, "label": str(link.get("label", "")).strip()[:20]}
+                    {
+                        "from": src,
+                        "to": dst,
+                        "label": str(link.get("label", "")).strip()[:20],
+                        "type": rtype if rtype in RELATION_TYPES else "related_to",
+                    }
                 )
         spec["links"] = links[:8]
 
@@ -501,8 +542,12 @@ def generate_artifact_spec(notebook_id: str, kind: str) -> dict:
             spec = _validate_artifact_spec(kind, _extract_json(raw))
             if kind == "mindgraph":
                 # Bind every node to source evidence (visualization stays, but
-                # the graph becomes navigable and source-grounded).
-                spec["evidence"] = bind_evidence(notebook_id, spec)
+                # the graph becomes navigable and source-grounded). Each edge
+                # inherits the evidence of one of its endpoints.
+                evidence = bind_evidence(notebook_id, spec)
+                spec["evidence"] = evidence
+                for link in spec.get("links", []):
+                    link["evidence"] = evidence.get(link["from"]) or evidence.get(link["to"]) or {}
             elif kind == "comparison":
                 # Drop positions the model attributed to a source that doesn't
                 # exist; a comparison must reference real sources.

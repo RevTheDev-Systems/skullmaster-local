@@ -736,6 +736,22 @@ $("#audio-overview-btn").addEventListener("click", async () => {
 const SVGNS = "http://www.w3.org/2000/svg";
 const PALETTE = ["#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
                  "#14b8a6", "#f43f5e", "#84cc16", "#6366f1", "#eab308", "#06b6d4"];
+// Knowledge-graph typing (mirrors app/studio.py vocabularies).
+const ENTITY_COLOURS = {
+  concept: "#64748b", organization: "#4f46e5", person: "#8b5cf6",
+  location: "#0ea5e9", date: "#f59e0b", metric: "#10b981",
+  event: "#ef4444", document: "#6366f1",
+};
+const RELATION_STYLES = {
+  related_to: { dash: "5 4", colour: "#5f7390" },
+  part_of: { dash: "", colour: "#4f46e5" },
+  causes: { dash: "", colour: "#ef4444" },
+  measures: { dash: "2 3", colour: "#10b981" },
+  located_at: { dash: "", colour: "#0ea5e9" },
+  enables: { dash: "8 4", colour: "#8b5cf6" },
+  contradicts: { dash: "2 2", colour: "#ef4444" },
+  precedes: { dash: "10 4", colour: "#f59e0b" },
+};
 const ART_ICONS = {
   chart: "📊", infographic: "🪧", spreadsheet: "📋", mindgraph: "🧠",
   comparison: "⚖️",
@@ -961,10 +977,11 @@ function renderMindGraph(spec) {
     h: size + 14,
   });
 
-  const drawPill = (node, { fill, textColor, size, bold }) => {
+  const drawPill = (node, { fill, textColor, size, bold, stroke }) => {
     svgEl("rect", { x: node.x - node.w / 2, y: node.y - node.h / 2,
                     width: node.w, height: node.h, rx: node.h / 2,
-                    fill, stroke: "rgba(15,27,45,0.14)" }, nodes);
+                    fill, "stroke-width": stroke ? 2 : 1,
+                    stroke: stroke || "rgba(15,27,45,0.14)" }, nodes);
     const t = svgText(nodes, node.x, node.y + size * 0.35, node.text, {
       "text-anchor": "middle", "font-size": size, fill: textColor });
     if (bold) t.setAttribute("font-weight", "700");
@@ -974,6 +991,7 @@ function renderMindGraph(spec) {
 
   // ---- 1. place branches and children ----
   const branches = spec.branches;
+  const nodeTypes = spec.node_types || {};
   const positions = new Map();          // label -> node (for cross-links)
   const branchNodes = [];
   const childNodes = [];
@@ -983,7 +1001,8 @@ function renderMindGraph(spec) {
     const angle = start + (bi / branches.length) * 2 * Math.PI;
     const text = clip(branch.label, 22);
     const node = {
-      text, full: branch.label, colour: PALETTE[bi % PALETTE.length],
+      text, full: branch.label,
+      colour: ENTITY_COLOURS[nodeTypes[branch.label]] || PALETTE[bi % PALETTE.length],
       x: cx + BRANCH_R * Math.cos(angle), y: cy + BRANCH_R * Math.sin(angle),
       ...pillSize(text, 12),
     };
@@ -999,6 +1018,7 @@ function renderMindGraph(spec) {
       const ctext = clip(child, 32);
       const cnode = {
         text: ctext, full: child, parent: node, a, r,
+        etype: nodeTypes[child],
         x: cx + r * Math.cos(a), y: cy + r * Math.sin(a),
         ...pillSize(ctext, 11),
       };
@@ -1057,23 +1077,33 @@ function renderMindGraph(spec) {
     }, edges);
   }
 
+  const usedRelationTypes = new Set();
   for (const link of spec.links || []) {
     const a = positions.get(link.from), b = positions.get(link.to);
     if (!a || !b) continue;
+    const style = RELATION_STYLES[link.type] || RELATION_STYLES.related_to;
+    usedRelationTypes.add(link.type in RELATION_STYLES ? link.type : "related_to");
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     const dx = mx - cx, dy = my - cy, len = Math.hypot(dx, dy) || 1;
     const qx = mx + (dx / len) * 42, qy = my + (dy / len) * 42;
-    svgEl("path", { d: `M ${a.x} ${a.y} Q ${qx} ${qy} ${b.x} ${b.y}`,
-                    fill: "none", stroke: "#5f7390", "stroke-width": 1.3,
-                    "stroke-dasharray": "5 4", opacity: 0.75 }, edges);
-    if (link.label) {
-      svgText(edges, qx, qy - 4, link.label, {
-        "text-anchor": "middle", "font-size": 10, fill: "#5f7390" });
+    const edge = svgEl("path", { d: `M ${a.x} ${a.y} Q ${qx} ${qy} ${b.x} ${b.y}`,
+                    fill: "none", stroke: style.colour, "stroke-width": 1.6,
+                    "stroke-dasharray": style.dash, opacity: 0.85 }, edges);
+    const label = link.label || link.type;
+    if (label) {
+      const t = svgText(edges, qx, qy - 4, label, {
+        "text-anchor": "middle", "font-size": 10, fill: style.colour });
+      t.setAttribute("font-weight", "600");
+      const title = svgEl("title", {}, edge);
+      title.textContent = `${link.from} —${link.type}→ ${link.to}`;
     }
   }
 
   for (const c of childNodes) {
-    drawPill(c, { fill: "#f4f7fc", textColor: "#1f2430", size: 11, bold: false });
+    drawPill(c, {
+      fill: "#f4f7fc", textColor: "#1f2430", size: 11, bold: false,
+      stroke: ENTITY_COLOURS[c.etype] || "rgba(15,27,45,0.14)",
+    });
   }
   for (const b of branchNodes) {
     drawPill(b, { fill: b.colour, textColor: "#ffffff", size: 12, bold: true });
@@ -1081,6 +1111,24 @@ function renderMindGraph(spec) {
   const rootText = clip(spec.root, 26);
   drawPill({ text: rootText, full: spec.root, x: cx, y: cy, ...pillSize(rootText, 14) },
            { fill: "#1f2430", textColor: "#ffffff", size: 14, bold: true });
+
+  // ---- 4. legend: the entity and relation types actually present ----
+  const entityTypes = [...new Set(Object.values(nodeTypes))]
+    .filter((t) => t in ENTITY_COLOURS);
+  const legend = svgEl("g", {}, svg);
+  let ly = H - 12 - 16 * (entityTypes.length + usedRelationTypes.size);
+  for (const type of entityTypes) {
+    svgEl("circle", { cx: 22, cy: ly, r: 5, fill: ENTITY_COLOURS[type] }, legend);
+    svgText(legend, 33, ly + 4, type, { "font-size": 11, fill: "#5f6774" });
+    ly += 16;
+  }
+  for (const type of usedRelationTypes) {
+    const style = RELATION_STYLES[type];
+    svgEl("line", { x1: 15, y1: ly, x2: 29, y2: ly, stroke: style.colour,
+                    "stroke-width": 2, "stroke-dasharray": style.dash }, legend);
+    svgText(legend, 33, ly + 4, type, { "font-size": 11, fill: "#5f6774" });
+    ly += 16;
+  }
 
   return svg;
 }
@@ -1202,13 +1250,16 @@ function renderComparison(spec) {
   return root;
 }
 
-function renderEvidence(evidence) {
+function renderEvidence(artifact) {
+  const spec = artifact.spec || {};
+  const evidence = spec.evidence || {};
   const wrap = document.createElement("div");
   wrap.className = "art-evidence";
-  const h = document.createElement("h3");
-  h.textContent = "Evidence";
-  wrap.appendChild(h);
-  const ul = document.createElement("ul");
+
+  const heading = document.createElement("h3");
+  heading.textContent = "Evidence";
+  wrap.appendChild(heading);
+  const nodes = document.createElement("ul");
   for (const [label, ev] of Object.entries(evidence)) {
     const li = document.createElement("li");
     const term = document.createElement("strong");
@@ -1218,9 +1269,38 @@ function renderEvidence(evidence) {
       ? ` — ${ev.source} — page ${ev.page}`
       : ` — ${ev.source}`;
     li.append(term, where);
-    ul.appendChild(li);
+    nodes.appendChild(li);
   }
-  wrap.appendChild(ul);
+  if (!Object.keys(evidence).length) {
+    const li = document.createElement("li");
+    li.textContent = "No node could be traced to a source passage.";
+    nodes.appendChild(li);
+  }
+  wrap.appendChild(nodes);
+
+  const links = spec.links || [];
+  if (links.length) {
+    const relations = document.createElement("h3");
+    relations.textContent = "Relations";
+    wrap.appendChild(relations);
+    const list = document.createElement("ul");
+    for (const link of links) {
+      const li = document.createElement("li");
+      const term = document.createElement("strong");
+      term.textContent = `${link.from} — ${link.type || "related_to"} → ${link.to}`;
+      li.appendChild(term);
+      const ev = link.evidence;
+      if (ev && ev.source) {
+        const span = document.createElement("span");
+        span.textContent = ev.page != null
+          ? ` — ${ev.source} — page ${ev.page}`
+          : ` — ${ev.source}`;
+        li.appendChild(span);
+      }
+      list.appendChild(li);
+    }
+    wrap.appendChild(list);
+  }
   return wrap;
 }
 
@@ -1283,9 +1363,8 @@ function showArtifact(a) {
     dl.addEventListener("click", () => downloadBlob(
       new XMLSerializer().serializeToString(svg), `${slug(a.title)}.svg`, "image/svg+xml"));
     actions.appendChild(dl);
-    if (a.kind === "mindgraph" && a.spec.evidence
-        && Object.keys(a.spec.evidence).length) {
-      body.appendChild(renderEvidence(a.spec.evidence));
+    if (a.kind === "mindgraph") {
+      body.appendChild(renderEvidence(a));
     }
   } else if (a.kind === "spreadsheet") {
     const table = document.createElement("table");

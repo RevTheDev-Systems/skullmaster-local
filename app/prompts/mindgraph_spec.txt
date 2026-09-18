@@ -6,6 +6,8 @@ Hard rules:
 - Branches are the major themes; children are the specific ideas, findings, entities, or steps that belong to them.
 - Reuse the exact names, numbers, and terms from the sources for node labels so each node can be traced back to the evidence it came from.
 - Use "links" for meaningful relationships that cross branches (a cause, a dependency, a contrast, a supports/contradicts pair). Only add a link when the sources actually connect those two nodes. It is fine to return an empty list.
+- Give each cross-link a "type" from: related_to, part_of, causes, measures, located_at, enables, contradicts, precedes.
+- Classify each node with "node_types": map every root/branch/child label to one type from: concept, organization, person, location, date, metric, event, document. Omit labels you are unsure about.
 - Link endpoints must exactly match node labels you used elsewhere in the graph.
 - If the sources are too thin to map, output exactly: {"error": "The sources do not contain enough material for a mind graph."}
 
@@ -23,7 +25,8 @@ Output ONLY a JSON object, no prose, no markdown fences, in exactly this shape:
     ...3 to 6 branches, each with 2 to 5 children...
   ],
   "links": [
-    {"from": "some node label", "to": "another node label", "label": "relationship"}
+    {"from": "some node label", "to": "another node label", "label": "short relationship", "type": "causes"}
   ],
+  "node_types": {"some node label": "metric", "another node label": "location"},
   "source_note": "one short sentence naming which source(s) this maps"
 }

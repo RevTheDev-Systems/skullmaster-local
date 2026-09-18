@@ -202,7 +202,10 @@ def test_mindgraph_generation_drops_dangling_links(client, notebook):
     ).json()["spec"]
     assert spec["root"] == "Meridian Array"
     assert [b["label"] for b in spec["branches"]] == ["Output", "Site", "Cost"]
-    assert spec["links"] == [{"from": "1.2 GW", "to": "$940M", "label": "drives"}]
+    assert len(spec["links"]) == 1  # the "ghost node" link was pruned
+    link = spec["links"][0]
+    assert (link["from"], link["to"], link["label"]) == ("1.2 GW", "$940M", "drives")
+    assert link["type"] == "related_to"  # no type given -> normalized default
 
 
 def test_validate_mindgraph_rejects_bad_shapes():
@@ -659,3 +662,66 @@ def test_evidence_binding_leaves_unsupported_nodes_unbound(monkeypatch):
     assert "Meridian Array" in evidence  # verbatim match
     assert "Governance" not in evidence  # no support -> unbound
     assert "Budget" not in evidence
+
+
+def test_mindgraph_normalizes_entity_and_relation_types():
+    spec = studio._validate_artifact_spec(
+        "mindgraph",
+        {
+            "title": "t",
+            "root": "Root",
+            "branches": [
+                {"label": "A", "children": ["c1"]},
+                {"label": "B", "children": ["c2"]},
+            ],
+            "links": [
+                {"from": "c1", "to": "c2", "label": "r", "type": "causes"},
+                {"from": "B", "to": "A", "label": "r2", "type": "nonsense"},
+            ],
+            "node_types": {
+                "Root": "concept",
+                "A": "organization",
+                "c1": "metric",
+                "ghost": "person",
+                "B": "notatype",
+            },
+        },
+    )
+    # unknown labels and invalid types are dropped
+    assert spec["node_types"] == {"Root": "concept", "A": "organization", "c1": "metric"}
+    assert spec["links"][0]["type"] == "causes"
+    assert spec["links"][1]["type"] == "related_to"  # normalized
+
+
+def test_mindgraph_rejects_non_object_node_types():
+    with pytest.raises(studio.ModelOutputError):
+        studio._validate_artifact_spec(
+            "mindgraph",
+            {
+                "title": "t",
+                "root": "R",
+                "branches": [
+                    {"label": "A", "children": ["c"]},
+                    {"label": "B", "children": ["d"]},
+                ],
+                "node_types": ["concept"],
+            },
+        )
+
+
+def test_mindgraph_generation_attaches_edge_evidence(client, notebook):
+    _upload(
+        client,
+        notebook["id"],
+        "geo.txt",
+        b"The Meridian Array sits in the Atacama Desert and outputs 1.2 GW.",
+        "text/plain",
+    )
+    spec = client.post(
+        f"/api/notebooks/{notebook['id']}/artifacts", json={"kind": "mindgraph"}
+    ).json()["spec"]
+    assert spec["links"], "the mock graph has at least one valid link"
+    for link in spec["links"]:
+        assert link["type"] in studio.RELATION_TYPES
+        assert "evidence" in link
+    assert any(link["evidence"] for link in spec["links"])  # at least one bound

@@ -30,8 +30,9 @@ subsystems plus the model fabric:
 
 ## Mid term
 
-- **Richer knowledge graph** — typed entities and relations with evidence-bound
-  edges; navigate from the current radial view into a graph explorer.
+- **Richer knowledge graph** — ✅ typed entities and relations with
+  evidence-bound edges are delivered; a dedicated graph explorer (pan/zoom,
+  click-to-focus, cross-notebook graphs) is the next increment.
 - **Semantic notebook search** — ✅ delivered: `GET /api/search` searches every
   notebook at once (semantic + keyword), grouped by notebook, opening the exact
   passage.
