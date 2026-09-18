@@ -11,6 +11,7 @@ thinking mode — we forward only `content` and the answer stays clean.
 Chat only: mlx_lm.server exposes no /v1/embeddings, so embeddings stay on the
 Ollama backend (see routing.py).
 """
+
 import json
 import logging
 from collections.abc import Iterator
@@ -25,8 +26,18 @@ log = logging.getLogger(__name__)
 # and speech models that cannot serve chat. Filter the obvious ones out so the
 # picker only offers things that can actually answer.
 NON_CHAT_HINTS = (
-    "tts", "flux", "whisper", "embed", "stable-diffusion", "sdxl",
-    "clip", "vae", "musicgen", "parler", "bark", "encodec",
+    "tts",
+    "flux",
+    "whisper",
+    "embed",
+    "stable-diffusion",
+    "sdxl",
+    "clip",
+    "vae",
+    "musicgen",
+    "parler",
+    "bark",
+    "encodec",
 )
 
 # OpenAI-compatible /v1/models exposes no capabilities, so reasoning support is
@@ -45,7 +56,7 @@ class MLXProvider:
     def __init__(self, base_url: str | None = None):
         self.base_url = (base_url or MLX_BASE_URL).rstrip("/")
         self.chat_model = ""
-        self.call_count = 0   # /v1/models HTTP calls (for latency measurement)
+        self.call_count = 0  # /v1/models HTTP calls (for latency measurement)
 
     # ---- chat ----
 
@@ -66,12 +77,14 @@ class MLXProvider:
         # minutes, and reasoning models pause between tokens.
         timeout = httpx.Timeout(MLX_REQUEST_TIMEOUT, read=None)
         with httpx.Client(timeout=timeout) as client:
-            with client.stream("POST", f"{self.base_url}/chat/completions",
-                               json=payload) as response:
+            with client.stream(
+                "POST", f"{self.base_url}/chat/completions", json=payload
+            ) as response:
                 if response.status_code >= 400:
                     response.read()
                     raise RuntimeError(
-                        f"MLX backend error ({response.status_code}): {response.text[:300]}")
+                        f"MLX backend error ({response.status_code}): {response.text[:300]}"
+                    )
                 for line in response.iter_lines():
                     if not line or not line.startswith("data: "):
                         continue

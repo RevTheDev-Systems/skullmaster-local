@@ -1,4 +1,5 @@
 """Audio Overview: sources → two-host script (LLM) → local TTS → single WAV."""
+
 import json
 import logging
 import re
@@ -38,6 +39,7 @@ class ModelOutputError(ValueError):
 
 
 # ---------- Script generation ----------
+
 
 def _gather_context(notebook_id: str, budget: int) -> str:
     """Concatenate the notebook's chunks (grouped by source) up to `budget`.
@@ -91,6 +93,12 @@ def _speaker_code(value) -> str | None:
     return code[-1] if code else None
 
 
+def _chat_text(llm, messages: list[dict]) -> str:
+    """Non-streaming chat result as text, tolerant of iterator-returning providers."""
+    reply = llm.chat(messages)
+    return reply if isinstance(reply, str) else "".join(reply)
+
+
 def _text(value) -> str | None:
     """A short label for a graph node; objects/lists are ignored entirely."""
     if isinstance(value, str):
@@ -111,39 +119,43 @@ def generate_script(notebook_id: str) -> dict:
     llm = get_llm()
     last_err = None
     for attempt in range(2):
-        raw = llm.chat(messages)   # provider failures propagate — never retried here
+        raw = _chat_text(llm, messages)  # provider failures propagate — never retried here
         try:
             script = _extract_json(raw)
             raw_lines = script.get("lines")
             if not isinstance(raw_lines, list):
                 raise ModelOutputError("script.lines must be a list")
             lines = []
-            for l in raw_lines:
-                if not isinstance(l, dict):
+            for line in raw_lines:
+                if not isinstance(line, dict):
                     continue
-                speaker, text = _speaker_code(l.get("speaker")), l.get("text")
+                speaker, text = _speaker_code(line.get("speaker")), line.get("text")
                 if speaker in ("A", "B") and isinstance(text, str) and text.strip():
                     lines.append({"speaker": speaker, "text": text.strip()})
             if len(lines) < 4:
                 raise ModelOutputError("script needs at least 4 usable lines")
             title = script.get("title")
             return {
-                "title": title.strip() if isinstance(title, str) and title.strip()
-                         else "Audio Overview",
+                "title": title.strip()
+                if isinstance(title, str) and title.strip()
+                else "Audio Overview",
                 "lines": lines,
             }
         except ModelOutputError as e:
             last_err = e
             log.warning("Script parse failed (attempt %d): %s", attempt + 1, e)
             messages.append({"role": "assistant", "content": raw[:4000]})
-            messages.append({
-                "role": "user",
-                "content": "That was not valid JSON in the required shape. Return ONLY the JSON object.",
-            })
+            messages.append(
+                {
+                    "role": "user",
+                    "content": "That was not valid JSON in the required shape. Return ONLY the JSON object.",
+                }
+            )
     raise StudioError(f"Could not get a valid script from the model: {last_err}")
 
 
 # ---------- Audio assembly ----------
+
 
 def _resample_pcm16(pcm: bytes, src_rate: int, dst_rate: int) -> bytes:
     """Nearest-sample resampling — fine for speech, avoids a scipy dependency."""
@@ -224,8 +236,9 @@ def _clean_str_list(value, field: str, minimum: int, maximum: int) -> list[str]:
     return [_clean_str(v, field) for v in value]
 
 
-def _clean_pairs(value, field: str, keys: tuple[str, ...],
-                 minimum: int, maximum: int) -> list[dict]:
+def _clean_pairs(
+    value, field: str, keys: tuple[str, ...], minimum: int, maximum: int
+) -> list[dict]:
     if not isinstance(value, list) or not minimum <= len(value) <= maximum:
         raise ModelOutputError(f"{field} must be a list of {minimum}-{maximum} items")
     out = []
@@ -239,20 +252,19 @@ def _clean_pairs(value, field: str, keys: tuple[str, ...],
 def _validate_text_artifact(kind: str, spec: dict) -> dict:
     """Shape-check a grounded text artifact (all strings non-empty)."""
     if kind == "briefing":
-        spec["sections"] = _clean_pairs(spec.get("sections"), "sections",
-                                        ("heading", "body"), 1, 12)
+        spec["sections"] = _clean_pairs(
+            spec.get("sections"), "sections", ("heading", "body"), 1, 12
+        )
     elif kind == "study_guide":
         spec["objectives"] = _clean_str_list(spec.get("objectives"), "objectives", 1, 12)
-        spec["key_concepts"] = _clean_pairs(spec.get("key_concepts"), "key_concepts",
-                                            ("term", "definition"), 1, 20)
-        spec["questions"] = _clean_pairs(spec.get("questions"), "questions",
-                                         ("q", "a"), 1, 20)
+        spec["key_concepts"] = _clean_pairs(
+            spec.get("key_concepts"), "key_concepts", ("term", "definition"), 1, 20
+        )
+        spec["questions"] = _clean_pairs(spec.get("questions"), "questions", ("q", "a"), 1, 20)
     elif kind == "faq":
-        spec["items"] = _clean_pairs(spec.get("items"), "items",
-                                     ("question", "answer"), 1, 30)
+        spec["items"] = _clean_pairs(spec.get("items"), "items", ("question", "answer"), 1, 30)
     elif kind == "timeline":
-        spec["events"] = _clean_pairs(spec.get("events"), "events",
-                                      ("date", "event"), 1, 40)
+        spec["events"] = _clean_pairs(spec.get("events"), "events", ("date", "event"), 1, 40)
     elif kind == "source_summary":
         spec["summary"] = _clean_str(spec.get("summary"), "summary")
         spec["key_points"] = _clean_str_list(spec.get("key_points"), "key_points", 1, 12)
@@ -278,14 +290,18 @@ def _validate_artifact_spec(kind: str, spec: dict) -> dict:
         if spec.get("type") not in ("bar", "line", "pie"):
             raise ModelOutputError("chart type must be bar, line, or pie")
         labels, values = spec.get("labels"), spec.get("values")
-        if (not isinstance(labels, list) or not isinstance(values, list)
-                or len(labels) != len(values) or not 2 <= len(labels) <= 12):
+        if (
+            not isinstance(labels, list)
+            or not isinstance(values, list)
+            or len(labels) != len(values)
+            or not 2 <= len(labels) <= 12
+        ):
             raise ModelOutputError("labels/values must be equal-length lists (2-12)")
         try:
             spec["values"] = [float(v) for v in values]
         except (TypeError, ValueError) as e:
             raise ModelOutputError(f"chart values must be numeric: {e}")
-        spec["labels"] = [str(l) for l in labels]
+        spec["labels"] = [str(label) for label in labels]
         spec.setdefault("x_label", "")
         spec.setdefault("y_label", "")
 
@@ -299,8 +315,12 @@ def _validate_artifact_spec(kind: str, spec: dict) -> dict:
         if not isinstance(sections, list) or not sections:
             raise ModelOutputError("sections must be a non-empty list")
         for sec in sections:
-            if not (isinstance(sec, dict) and sec.get("heading")
-                    and isinstance(sec.get("points"), list) and sec["points"]):
+            if not (
+                isinstance(sec, dict)
+                and sec.get("heading")
+                and isinstance(sec.get("points"), list)
+                and sec["points"]
+            ):
                 raise ModelOutputError("each section needs heading and points")
 
     elif kind == "mindgraph":
@@ -333,8 +353,9 @@ def _validate_artifact_spec(kind: str, spec: dict) -> dict:
                 continue
             src, dst = str(link.get("from", "")).strip(), str(link.get("to", "")).strip()
             if src in labels and dst in labels and src != dst:
-                links.append({"from": src, "to": dst,
-                              "label": str(link.get("label", "")).strip()[:20]})
+                links.append(
+                    {"from": src, "to": dst, "label": str(link.get("label", "")).strip()[:20]}
+                )
         spec["links"] = links[:8]
 
     elif kind == "spreadsheet":
@@ -412,7 +433,7 @@ def generate_artifact_spec(notebook_id: str, kind: str) -> dict:
     llm = get_llm()
     last_err = None
     for attempt in range(2):
-        raw = llm.chat(messages)
+        raw = _chat_text(llm, messages)
         try:
             spec = _validate_artifact_spec(kind, _extract_json(raw))
             if kind == "mindgraph":
@@ -426,10 +447,12 @@ def generate_artifact_spec(notebook_id: str, kind: str) -> dict:
             last_err = e
             log.warning("Artifact spec parse failed (attempt %d): %s", attempt + 1, e)
             messages.append({"role": "assistant", "content": raw[:4000]})
-            messages.append({
-                "role": "user",
-                "content": f"That was invalid ({e}). Return ONLY the JSON object in the required shape.",
-            })
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"That was invalid ({e}). Return ONLY the JSON object in the required shape.",
+                }
+            )
     raise StudioError(f"Could not get a valid {kind} from the model: {last_err}")
 
 
@@ -445,7 +468,7 @@ def _safe_sheet_title(title: str) -> str:
     500 here, so illegal characters are normalized and a stable fallback used.
     """
     cleaned = _EXCEL_ILLEGAL.sub(" ", title or "")
-    cleaned = " ".join(cleaned.split())          # collapse runs of whitespace
+    cleaned = " ".join(cleaned.split())  # collapse runs of whitespace
     cleaned = cleaned.strip("'").strip()
     cleaned = cleaned[:_EXCEL_MAX_TITLE].strip().strip("'")
     return cleaned or "Data"
@@ -455,6 +478,7 @@ def write_xlsx(spec: dict, path) -> None:
     """Materialize a spreadsheet spec as a real .xlsx file."""
     from openpyxl import Workbook
     from openpyxl.styles import Font
+
     wb = Workbook()
     ws = wb.active
     ws.title = _safe_sheet_title(spec["title"])

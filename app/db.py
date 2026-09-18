@@ -1,4 +1,5 @@
 """SQLite metadata store for notebooks and sources (chunks live in LanceDB)."""
+
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -97,8 +98,7 @@ def conn():
 def init_db():
     with conn() as c:
         c.executescript(SCHEMA)
-        for table, migrations in (("sources", SOURCE_MIGRATIONS),
-                                  ("messages", MESSAGE_MIGRATIONS)):
+        for table, migrations in (("sources", SOURCE_MIGRATIONS), ("messages", MESSAGE_MIGRATIONS)):
             existing = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
             for col, ddl in migrations.items():
                 if col not in existing:
@@ -160,11 +160,19 @@ def delete_notebook(notebook_id: str):
         c.execute("DELETE FROM notebooks WHERE id = ?", (notebook_id,))
 
 
-def create_source(notebook_id: str, name: str, kind: str, origin: str | None,
-                  pages: int | None, chunk_count: int, *,
-                  status: str = "ready", error: str | None = None,
-                  content_hash: str | None = None,
-                  stored_path: str | None = None) -> dict:
+def create_source(
+    notebook_id: str,
+    name: str,
+    kind: str,
+    origin: str | None,
+    pages: int | None,
+    chunk_count: int,
+    *,
+    status: str = "ready",
+    error: str | None = None,
+    content_hash: str | None = None,
+    stored_path: str | None = None,
+) -> dict:
     src = {
         "id": uuid.uuid4().hex[:12],
         "notebook_id": notebook_id,
@@ -198,8 +206,7 @@ def get_source(source_id: str) -> dict | None:
 def find_source_by_hash(notebook_id: str, content_hash: str) -> dict | None:
     with conn() as c:
         row = c.execute(
-            "SELECT * FROM sources WHERE notebook_id = ? AND content_hash = ?"
-            " AND status = 'ready'",
+            "SELECT * FROM sources WHERE notebook_id = ? AND content_hash = ? AND status = 'ready'",
             (notebook_id, content_hash),
         ).fetchone()
     return dict(row) if row else None
@@ -208,8 +215,7 @@ def find_source_by_hash(notebook_id: str, content_hash: str) -> dict | None:
 def update_source(source_id: str, **fields):
     assign = ", ".join(f"{k} = :{k}" for k in fields)
     with conn() as c:
-        c.execute(f"UPDATE sources SET {assign} WHERE id = :id",
-                  {**fields, "id": source_id})
+        c.execute(f"UPDATE sources SET {assign} WHERE id = :id", {**fields, "id": source_id})
 
 
 def list_sources(notebook_id: str) -> list[dict]:
@@ -228,9 +234,16 @@ def delete_source(source_id: str):
 
 # ---------- Chat messages ----------
 
-def add_message(notebook_id: str, role: str, content: str,
-                citations: str | None = None, *,
-                status: str = "completed", error: str | None = None) -> dict:
+
+def add_message(
+    notebook_id: str,
+    role: str,
+    content: str,
+    citations: str | None = None,
+    *,
+    status: str = "completed",
+    error: str | None = None,
+) -> dict:
     """Insert one message. Assistant turns may start as pending/streaming and be
     finalized later, so an interrupted turn is preserved rather than lost."""
     msg = {
@@ -256,8 +269,7 @@ def add_message(notebook_id: str, role: str, content: str,
 def update_message(message_id: str, **fields):
     assign = ", ".join(f"{k} = :{k}" for k in fields)
     with conn() as c:
-        c.execute(f"UPDATE messages SET {assign} WHERE id = :id",
-                  {**fields, "id": message_id})
+        c.execute(f"UPDATE messages SET {assign} WHERE id = :id", {**fields, "id": message_id})
 
 
 def list_messages(notebook_id: str) -> list[dict]:
@@ -276,8 +288,10 @@ def clear_messages(notebook_id: str):
 
 # ---------- Audio overviews ----------
 
-def create_audio_overview(notebook_id: str, filename: str, title: str,
-                          duration_seconds: float, line_count: int) -> dict:
+
+def create_audio_overview(
+    notebook_id: str, filename: str, title: str, duration_seconds: float, line_count: int
+) -> dict:
     row = {
         "id": uuid.uuid4().hex[:12],
         "notebook_id": notebook_id,
@@ -299,14 +313,14 @@ def create_audio_overview(notebook_id: str, filename: str, title: str,
 def list_audio_overviews(notebook_id: str) -> list[dict]:
     with conn() as c:
         rows = c.execute(
-            "SELECT * FROM audio_overviews WHERE notebook_id = ?"
-            " ORDER BY created_at DESC",
+            "SELECT * FROM audio_overviews WHERE notebook_id = ? ORDER BY created_at DESC",
             (notebook_id,),
         ).fetchall()
     return [dict(r) for r in rows]
 
 
 # ---------- Settings ----------
+
 
 def get_setting(key: str, default: str | None = None) -> str | None:
     with conn() as c:
@@ -325,6 +339,7 @@ def set_setting(key: str, value: str):
 
 # ---------- Auth: owner account + sessions ----------
 
+
 def get_app_user() -> dict | None:
     with conn() as c:
         row = c.execute("SELECT * FROM app_user WHERE id = 1").fetchone()
@@ -337,15 +352,20 @@ def set_app_user(password_hash: str, salt: str, iterations: int):
             "INSERT INTO app_user VALUES (1, :password_hash, :salt, :iterations, :created_at)"
             " ON CONFLICT(id) DO UPDATE SET password_hash = :password_hash,"
             " salt = :salt, iterations = :iterations, created_at = :created_at",
-            {"password_hash": password_hash, "salt": salt,
-             "iterations": iterations, "created_at": _now()},
+            {
+                "password_hash": password_hash,
+                "salt": salt,
+                "iterations": iterations,
+                "created_at": _now(),
+            },
         )
 
 
 def create_session(token_hash: str, expires_at: str):
     with conn() as c:
-        c.execute("INSERT OR REPLACE INTO sessions VALUES (?, ?, ?)",
-                  (token_hash, _now(), expires_at))
+        c.execute(
+            "INSERT OR REPLACE INTO sessions VALUES (?, ?, ?)", (token_hash, _now(), expires_at)
+        )
 
 
 def get_session(token_hash: str) -> dict | None:
@@ -375,14 +395,15 @@ def purge_expired_sessions(cutoff: datetime):
         for row in rows:
             expires = parse_timestamp(row["expires_at"])
             if expires is None or expires <= cutoff:
-                c.execute("DELETE FROM sessions WHERE token_hash = ?",
-                          (row["token_hash"],))
+                c.execute("DELETE FROM sessions WHERE token_hash = ?", (row["token_hash"],))
 
 
 # ---------- Studio artifacts ----------
 
-def create_artifact(notebook_id: str, kind: str, title: str, spec: str,
-                    file_path: str | None = None) -> dict:
+
+def create_artifact(
+    notebook_id: str, kind: str, title: str, spec: str, file_path: str | None = None
+) -> dict:
     row = {
         "id": uuid.uuid4().hex[:12],
         "notebook_id": notebook_id,

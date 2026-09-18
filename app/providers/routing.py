@@ -9,6 +9,7 @@ support existed.
 Embeddings always go to Ollama: MLX exposes no embeddings endpoint, and swapping
 embedding models would invalidate every stored vector.
 """
+
 import logging
 
 from ..config import CHAT_MODEL, mlx_configured
@@ -122,14 +123,13 @@ class RoutingProvider:
         if backend_name == MLX and not self._reachable(MLX):
             fallback = self._safe_fallback()
             self.chat_model = fallback
-            self.runtime_warning = (
-                f"MLX model {model!r} went offline; using {_label(fallback)}.")
+            self.runtime_warning = f"MLX model {model!r} went offline; using {_label(fallback)}."
             log.warning("%s", self.runtime_warning)
 
     def _active(self):
         backend_name, model = split(self.chat_model)
         backend = self._backend(backend_name)
-        backend.set_chat_model(model)   # one model is active at a time
+        backend.set_chat_model(model)  # one model is active at a time
         return backend
 
     # ---- LLMProvider ----
@@ -150,15 +150,17 @@ class RoutingProvider:
         models: list[dict] = []
         try:
             for m in self.ollama.list_models(refresh=refresh):
-                models.append({**m, "backend": OLLAMA, "label": m["name"],
-                               "name": qualify(OLLAMA, m["name"])})
+                models.append(
+                    {**m, "backend": OLLAMA, "label": m["name"], "name": qualify(OLLAMA, m["name"])}
+                )
         except Exception as e:
             log.warning("Could not list Ollama models: %s", e)
         if self.mlx:
             try:
                 for m in self.mlx.list_models():
-                    models.append({**m, "backend": MLX, "label": m["name"],
-                                   "name": qualify(MLX, m["name"])})
+                    models.append(
+                        {**m, "backend": MLX, "label": m["name"], "name": qualify(MLX, m["name"])}
+                    )
             except Exception as e:
                 log.warning("Could not list MLX models: %s", e)
         return models
@@ -170,15 +172,21 @@ class RoutingProvider:
         states: dict[str, dict] = {}
         try:
             o = self.ollama.status()
-            states[OLLAMA] = {"configured": True, "reachable": o.get("reachable", False),
-                              "state": o.get("state", "offline")}
+            states[OLLAMA] = {
+                "configured": True,
+                "reachable": o.get("reachable", False),
+                "state": o.get("state", "offline"),
+            }
         except Exception:
             states[OLLAMA] = {"configured": True, "reachable": False, "state": "offline"}
         if self.mlx:
             try:
                 m = self.mlx.status()
-                states[MLX] = {"configured": True, "reachable": m.get("reachable", False),
-                               "state": m.get("state", "offline")}
+                states[MLX] = {
+                    "configured": True,
+                    "reachable": m.get("reachable", False),
+                    "state": m.get("state", "offline"),
+                }
             except Exception:
                 states[MLX] = {"configured": True, "reachable": False, "state": "offline"}
         else:
@@ -191,9 +199,13 @@ class RoutingProvider:
         Capabilities: chat | reasoning | embedding | vision | tools. Returns a
         qualified model id or None. Embeddings still execute on Ollama.
         """
-        flag = {"chat": "can_chat", "reasoning": "can_reason",
-                "embedding": "can_embed", "vision": "can_vision",
-                "tools": "can_tools"}.get(capability, f"can_{capability}")
+        flag = {
+            "chat": "can_chat",
+            "reasoning": "can_reason",
+            "embedding": "can_embed",
+            "vision": "can_vision",
+            "tools": "can_tools",
+        }.get(capability, f"can_{capability}")
         models = self.list_models()
         active = next((m for m in models if m.get("name") == self.chat_model), None)
         if active and active.get(flag):
@@ -229,7 +241,8 @@ class RoutingProvider:
         fallback = self._safe_fallback()
         self.chat_model = fallback
         self.runtime_warning = (
-            f"{_label(self._preferred)} is unavailable; using {_label(fallback)}.")
+            f"{_label(self._preferred)} is unavailable; using {_label(fallback)}."
+        )
         log.warning("Model fallback: %s", self.runtime_warning)
         return self._selection(activated=False)
 
@@ -268,13 +281,21 @@ class RoutingProvider:
         base["preferred_model"] = self._preferred
         if self.runtime_warning:
             base["warning"] = self.runtime_warning
-        states = {OLLAMA: {"configured": True, "reachable": base.get("reachable", False),
-                           "state": base.get("state", "offline")}}
+        states = {
+            OLLAMA: {
+                "configured": True,
+                "reachable": base.get("reachable", False),
+                "state": base.get("state", "offline"),
+            }
+        }
         if self.mlx:
             mlx_status = self.mlx.status()
             base["mlx"] = mlx_status
-            states[MLX] = {"configured": True, "reachable": mlx_status.get("reachable", False),
-                           "state": mlx_status.get("state", "offline")}
+            states[MLX] = {
+                "configured": True,
+                "reachable": mlx_status.get("reachable", False),
+                "state": mlx_status.get("state", "offline"),
+            }
         else:
             states[MLX] = {"configured": False, "reachable": False, "state": "offline"}
         base["provider_states"] = states

@@ -1,4 +1,5 @@
 """macOS built-in `say` TTS — zero-install fallback backend."""
+
 import shutil
 import subprocess
 import tempfile
@@ -23,14 +24,17 @@ class SayTTS:
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "line.wav"
             subprocess.run(
-                ["say", "-v", voice, "-o", str(out),
-                 f"--data-format=LEI16@{SAMPLE_RATE}", text],
-                check=True, capture_output=True,
+                ["say", "-v", voice, "-o", str(out), f"--data-format=LEI16@{SAMPLE_RATE}", text],
+                check=True,
+                capture_output=True,
             )
             with wave.open(str(out), "rb") as w:
                 return w.readframes(w.getnframes()), w.getframerate()
 
     def status(self) -> dict:
         ready = shutil.which("say") is not None
-        return {"backend": "say", "ready": ready,
-                "detail": "macOS say available" if ready else "`say` not found (macOS only)"}
+        return {
+            "backend": "say",
+            "ready": ready,
+            "detail": "macOS say available" if ready else "`say` not found (macOS only)",
+        }

@@ -1,4 +1,5 @@
 """RAG evaluation harness: metric math, corpus coverage, deterministic runs."""
+
 import hashlib
 import re
 from pathlib import Path
@@ -19,12 +20,22 @@ def eval_store(tmp_path, monkeypatch):
     independent of test order.
     """
     import lancedb
+
     monkeypatch.setattr(store, "_db", lancedb.connect(str(tmp_path / "lancedb")))
     return store
+
+
 REQUIRED_CATEGORIES = {
-    "exact_fact", "paraphrase", "multi_document", "conflicting_sources",
-    "table_data", "pdf_page_citation", "media_timestamp_citation",
-    "irrelevant", "absent", "duplicate_material",
+    "exact_fact",
+    "paraphrase",
+    "multi_document",
+    "conflicting_sources",
+    "table_data",
+    "pdf_page_citation",
+    "media_timestamp_citation",
+    "irrelevant",
+    "absent",
+    "duplicate_material",
 }
 
 
@@ -46,8 +57,11 @@ class LexicalLLM:
         user = messages[-1]["content"]
         if self.refuse or "No relevant source excerpts" in user:
             return "I couldn't find this in your sources."
-        return ("The answer is supported by the sources [1]." if self.cite
-                else "The answer is supported by the sources.")
+        return (
+            "The answer is supported by the sources [1]."
+            if self.cite
+            else "The answer is supported by the sources."
+        )
 
     def status(self):
         return {"backend": "lexical-test"}
@@ -63,6 +77,7 @@ def _hashed_bow(text: str, dim: int = 64) -> list[float]:
 
 
 # ---------- metric primitives ----------
+
 
 def test_metric_primitives():
     chunks = [{"_key": "a"}, {"_key": "b"}, {"_key": "c"}]
@@ -94,6 +109,7 @@ def test_metric_primitives():
 
 # ---------- corpus ----------
 
+
 def test_corpus_covers_all_required_categories():
     corpus = evaluation.load_corpus(CORPUS_PATH)
     categories = {q["category"] for q in corpus["questions"]}
@@ -106,10 +122,17 @@ def test_corpus_covers_all_required_categories():
 
 # ---------- deterministic end-to-end runs ----------
 
+
 def test_retrieval_harness_is_deterministic(eval_store):
     corpus = evaluation.load_corpus(CORPUS_PATH)
-    report = evaluation.evaluate(corpus, llm=LexicalLLM(), k_values=(1, 3, 8),
-                                 generate=False, store_mod=eval_store, db_mod=db)
+    report = evaluation.evaluate(
+        corpus,
+        llm=LexicalLLM(),
+        k_values=(1, 3, 8),
+        generate=False,
+        store_mod=eval_store,
+        db_mod=db,
+    )
 
     assert report["generated"] is False
     assert report["retrieval"]["questions"] > 0
@@ -124,9 +147,15 @@ def test_retrieval_harness_is_deterministic(eval_store):
 
 def test_generation_metrics_with_scripted_llm(eval_store):
     corpus = evaluation.load_corpus(CORPUS_PATH)
-    report = evaluation.evaluate(corpus, llm=LexicalLLM(cite=True),
-                                 k_values=(1, 3, 8), generate=True,
-                                 store_mod=eval_store, db_mod=db, rag_mod=rag)
+    report = evaluation.evaluate(
+        corpus,
+        llm=LexicalLLM(cite=True),
+        k_values=(1, 3, 8),
+        generate=True,
+        store_mod=eval_store,
+        db_mod=db,
+        rag_mod=rag,
+    )
     gen = report["generation"]
     # The lexical stub (hashing bag-of-words) is a plumbing check, not a
     # semantic one, so a few of its top chunks are distractors; the point is
@@ -138,7 +167,13 @@ def test_generation_metrics_with_scripted_llm(eval_store):
 
 def test_refusal_accuracy_with_refusal_llm(eval_store):
     corpus = evaluation.load_corpus(CORPUS_PATH)
-    report = evaluation.evaluate(corpus, llm=LexicalLLM(refuse=True),
-                                 k_values=(1,), generate=True,
-                                 store_mod=eval_store, db_mod=db, rag_mod=rag)
+    report = evaluation.evaluate(
+        corpus,
+        llm=LexicalLLM(refuse=True),
+        k_values=(1,),
+        generate=True,
+        store_mod=eval_store,
+        db_mod=db,
+        rag_mod=rag,
+    )
     assert report["generation"]["refusal_accuracy"] == 1.0

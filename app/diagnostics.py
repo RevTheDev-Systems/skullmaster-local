@@ -3,6 +3,7 @@
 Checks every local dependency the app needs and prints actionable failures.
 Exit code 0 = all good, 1 = at least one check failed.
 """
+
 import sys
 
 from . import db
@@ -16,11 +17,11 @@ from .config import (
     OLLAMA_BASE_URL,
     PRODUCT_NAME,
     SQLITE_PATH,
+    STT_MODEL,  # noqa: E402  (grouped with config imports above)
     TTS_MODEL,
     UPLOADS_DIR,
     config_report,
 )
-from .config import STT_MODEL  # noqa: E402  (grouped with config imports above)
 from .providers import get_llm, get_stt, get_tts
 
 GREEN, RED, YELLOW, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[0m"
@@ -41,36 +42,55 @@ def main() -> int:
     print("Configuration")
     for item in config_report():
         if item["status"] == "invalid":
-            ok &= check(item["name"], False, item["detail"],
-                        "fix or remove this value in .env")
+            ok &= check(item["name"], False, item["detail"], "fix or remove this value in .env")
         else:
             ok &= check(f"{item['name']} ({item['status']})", True, item["detail"])
 
     print("\nStorage")
-    for label, path in (("data dir", DATA_DIR), ("uploads", UPLOADS_DIR),
-                        ("vector store", LANCEDB_DIR), ("audio", AUDIO_DIR)):
+    for label, path in (
+        ("data dir", DATA_DIR),
+        ("uploads", UPLOADS_DIR),
+        ("vector store", LANCEDB_DIR),
+        ("audio", AUDIO_DIR),
+    ):
         writable = path.exists() and path.is_dir()
-        ok &= check(label, writable, str(path),
-                    f"create the directory: mkdir -p {path}")
+        ok &= check(label, writable, str(path), f"create the directory: mkdir -p {path}")
     try:
         db.init_db()
         counts = db.counts()
-        ok &= check("sqlite", True,
-                    f"{SQLITE_PATH} ({counts['notebooks']} notebooks, {counts['sources']} sources)")
+        ok &= check(
+            "sqlite",
+            True,
+            f"{SQLITE_PATH} ({counts['notebooks']} notebooks, {counts['sources']} sources)",
+        )
     except Exception as e:
-        ok &= check("sqlite", False, f"{SQLITE_PATH}: {e}",
-                    "delete the corrupt DB file to start fresh (loses notebook metadata)")
+        ok &= check(
+            "sqlite",
+            False,
+            f"{SQLITE_PATH}: {e}",
+            "delete the corrupt DB file to start fresh (loses notebook metadata)",
+        )
 
     print("\nLLM backend")
     llm = get_llm().status()
-    ok &= check("ollama", llm.get("reachable", False), OLLAMA_BASE_URL,
-                "start Ollama (`ollama serve` or launch the app), or fix OLLAMA_BASE_URL in .env")
-    ok &= check(f"chat model ({CHAT_MODEL})", llm.get("chat_model_ready", False),
-                "installed" if llm.get("chat_model_ready") else "not installed",
-                f"ollama pull {CHAT_MODEL} (the app also auto-pulls at startup)")
-    ok &= check(f"embed model ({EMBED_MODEL})", llm.get("embed_model_ready", False),
-                "installed" if llm.get("embed_model_ready") else "not installed",
-                f"ollama pull {EMBED_MODEL} (the app also auto-pulls at startup)")
+    ok &= check(
+        "ollama",
+        llm.get("reachable", False),
+        OLLAMA_BASE_URL,
+        "start Ollama (`ollama serve` or launch the app), or fix OLLAMA_BASE_URL in .env",
+    )
+    ok &= check(
+        f"chat model ({CHAT_MODEL})",
+        llm.get("chat_model_ready", False),
+        "installed" if llm.get("chat_model_ready") else "not installed",
+        f"ollama pull {CHAT_MODEL} (the app also auto-pulls at startup)",
+    )
+    ok &= check(
+        f"embed model ({EMBED_MODEL})",
+        llm.get("embed_model_ready", False),
+        "installed" if llm.get("embed_model_ready") else "not installed",
+        f"ollama pull {EMBED_MODEL} (the app also auto-pulls at startup)",
+    )
 
     print("\nTTS backend")
     tts = get_tts().status()
@@ -78,8 +98,12 @@ def main() -> int:
         # not fatal: kokoro weights auto-download on first Audio Overview
         print(f"  [{YELLOW}WARN{RESET}] tts (kokoro): {tts.get('detail', '')}")
     else:
-        ok &= check(f"tts ({TTS_MODEL})", tts.get("ready", False), tts.get("detail", ""),
-                    "set TTS_MODEL=kokoro (portable) or TTS_MODEL=say (macOS) in .env")
+        ok &= check(
+            f"tts ({TTS_MODEL})",
+            tts.get("ready", False),
+            tts.get("detail", ""),
+            "set TTS_MODEL=kokoro (portable) or TTS_MODEL=say (macOS) in .env",
+        )
 
     mlx = llm.get("mlx")
     if mlx:
@@ -89,18 +113,25 @@ def main() -> int:
         else:
             # Optional backend: an offline MLX endpoint must not fail diagnostics
             # (or block startup) — the app simply runs on Ollama until it appears.
-            print(f"  [{YELLOW}WARN{RESET}] mlx endpoint: "
-                  f"{mlx.get('base_url')} — {mlx.get('detail')}")
-            print(f"         start it with: mlx_lm.server --host 127.0.0.1 --port 8080, "
-                  f"or set MLX_ENABLED=false in .env")
+            print(
+                f"  [{YELLOW}WARN{RESET}] mlx endpoint: {mlx.get('base_url')} — {mlx.get('detail')}"
+            )
+            print(
+                "         start it with: mlx_lm.server --host 127.0.0.1 --port 8080, "
+                "or set MLX_ENABLED=false in .env"
+            )
 
     print("\nSTT backend (video/audio transcription)")
     stt = get_stt().status()
     if "download" in stt.get("detail", ""):
         print(f"  [{YELLOW}WARN{RESET}] stt ({STT_MODEL}): {stt['detail']}")
     else:
-        ok &= check(f"stt ({STT_MODEL})", stt.get("ready", False), stt.get("detail", ""),
-                    "set STT_MODEL=whisper-<tiny|base|small|medium|large-v3> in .env")
+        ok &= check(
+            f"stt ({STT_MODEL})",
+            stt.get("ready", False),
+            stt.get("detail", ""),
+            "set STT_MODEL=whisper-<tiny|base|small|medium|large-v3> in .env",
+        )
 
     print()
     if ok:

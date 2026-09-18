@@ -1,4 +1,5 @@
 """Model listing, runtime chat-model switching, and thinking-mode fallback."""
+
 import types
 
 import ollama
@@ -36,8 +37,7 @@ class _FakeClient:
             if think and not self.supports_thinking:
                 for t in self.tokens[: self.fail_after]:
                     yield {"message": {"content": t}}
-                raise ollama.ResponseError(
-                    f'"{model}" does not support thinking', 400)
+                raise ollama.ResponseError(f'"{model}" does not support thinking', 400)
             for t in self.tokens:
                 yield {"message": {"content": t}}
 
@@ -51,8 +51,10 @@ def test_qualified_model_ids_round_trip():
 
     assert split(qualify(OLLAMA, "qwen3:30b")) == (OLLAMA, "qwen3:30b")
     assert split(qualify(MLX, "mlx-community/Qwen3.6-35B-A3B-8bit")) == (
-        MLX, "mlx-community/Qwen3.6-35B-A3B-8bit")
-    assert split("qwen3:30b") == (OLLAMA, "qwen3:30b")       # legacy setting
+        MLX,
+        "mlx-community/Qwen3.6-35B-A3B-8bit",
+    )
+    assert split("qwen3:30b") == (OLLAMA, "qwen3:30b")  # legacy setting
     assert split("weird::name::x") == (OLLAMA, "weird::name::x")  # unknown prefix
 
 
@@ -103,6 +105,7 @@ def test_mlx_stream_discards_reasoning():
     p = MLXProvider(base_url="http://mlx.test/v1")
     p.set_chat_model("thinker")
     import app.providers.mlx_provider as mod
+
     original, mod.httpx.Client = mod.httpx.Client, lambda **kw: _Client()
     try:
         assert "".join(p._chat_stream([])) == "The answer is 42 [1]."
@@ -117,8 +120,8 @@ def test_chat_falls_back_when_model_rejects_thinking():
     p.client = _FakeClient(supports_thinking=False)
 
     assert "".join(p._chat_stream([])) == "hello"
-    assert p.client.think_flags == [True, False]   # retried without thinking
-    assert p._thinking["phi4:latest"] is False     # and remembered
+    assert p.client.think_flags == [True, False]  # retried without thinking
+    assert p._thinking["phi4:latest"] is False  # and remembered
 
 
 def test_thinking_model_is_not_retried():
@@ -126,7 +129,7 @@ def test_thinking_model_is_not_retried():
     p.client = _FakeClient(supports_thinking=True)
 
     assert "".join(p._chat_stream([])) == "hello"
-    assert p.client.think_flags == [True]          # single request
+    assert p.client.think_flags == [True]  # single request
 
 
 def test_no_retry_after_partial_output():
@@ -142,7 +145,7 @@ def test_no_retry_after_partial_output():
 def test_models_listed_with_capabilities(client):
     body = client.get("/api/models").json()
     names = [m["name"] for m in body["models"]]
-    assert names == sorted(names)                     # stable ordering for the picker
+    assert names == sorted(names)  # stable ordering for the picker
     assert body["chat_model"] == "mock-chat"
     chat_only = [m["name"] for m in body["models"] if m["can_chat"]]
     assert chat_only == ["mock-chat", "mock-chat-2"]  # embedding model excluded
@@ -158,7 +161,7 @@ def test_switch_chat_model_persists(client, mock_llm):
     res = client.post("/api/models/chat", json={"name": "mock-chat-2"})
     assert res.status_code == 200 and res.json()["chat_model"] == "mock-chat-2"
 
-    assert mock_llm.chat_model == "mock-chat-2"                    # provider updated
+    assert mock_llm.chat_model == "mock-chat-2"  # provider updated
     assert client.get("/api/models").json()["chat_model"] == "mock-chat-2"
     assert db.get_setting(main.CHAT_MODEL_SETTING) == "mock-chat-2"  # survives restart
     assert client.get("/health").json()["llm"]["chat_model"] == "mock-chat-2"
@@ -183,7 +186,7 @@ def test_saved_model_restored_on_startup(client, mock_llm):
     client.post("/api/models/chat", json={"name": "mock-chat-2"})
     mock_llm.set_chat_model("mock-chat")  # simulate a fresh process default
 
-    with TestClient(main.app):            # lifespan runs and restores the setting
+    with TestClient(main.app):  # lifespan runs and restores the setting
         assert mock_llm.chat_model == "mock-chat-2"
 
     client.post("/api/models/chat", json={"name": "mock-chat"})
@@ -197,25 +200,45 @@ def test_models_response_exposes_active_preferred_and_warning(client):
 
 # ---------- provider failover & dynamic discovery (Phase 1) ----------
 
+
 class _FakeOllama:
-    def __init__(self, *, reachable=True, models=None, default="qwen3:30b",
-                 fail_list=False):
+    def __init__(self, *, reachable=True, models=None, default="qwen3:30b", fail_list=False):
         self.up = reachable
         self.fail_list = fail_list
         self.embed_model = "nomic-embed-text"
         self.chat_model = default
-        self._models = models if models is not None else [
-            {"name": "qwen3:30b", "size": 1, "parameter_size": "30B",
-             "can_chat": True, "can_embed": False},
-            {"name": "nomic-embed-text", "size": 1, "parameter_size": None,
-             "can_chat": False, "can_embed": True},
-        ]
+        self._models = (
+            models
+            if models is not None
+            else [
+                {
+                    "name": "qwen3:30b",
+                    "size": 1,
+                    "parameter_size": "30B",
+                    "can_chat": True,
+                    "can_embed": False,
+                },
+                {
+                    "name": "nomic-embed-text",
+                    "size": 1,
+                    "parameter_size": None,
+                    "can_chat": False,
+                    "can_embed": True,
+                },
+            ]
+        )
 
     def status(self):
-        return {"backend": "ollama", "base_url": "fake", "reachable": self.up,
-                "state": "healthy" if self.up else "offline",
-                "chat_model": self.chat_model, "chat_model_ready": self.up,
-                "embed_model": self.embed_model, "embed_model_ready": self.up}
+        return {
+            "backend": "ollama",
+            "base_url": "fake",
+            "reachable": self.up,
+            "state": "healthy" if self.up else "offline",
+            "chat_model": self.chat_model,
+            "chat_model_ready": self.up,
+            "embed_model": self.embed_model,
+            "embed_model_ready": self.up,
+        }
 
     def list_models(self):
         if not self.up or self.fail_list:
@@ -251,8 +274,10 @@ class _FakeMLX:
     def list_models(self):
         if not self.up or self.fail_list:
             raise RuntimeError("mlx down")
-        return [{"name": n, "size": None, "parameter_size": None,
-                 "can_chat": True, "can_embed": False} for n in self._models]
+        return [
+            {"name": n, "size": None, "parameter_size": None, "can_chat": True, "can_embed": False}
+            for n in self._models
+        ]
 
     def set_chat_model(self, name):
         self.chat_model = name
@@ -261,8 +286,7 @@ class _FakeMLX:
         return "mlx-reply"
 
     def status(self):
-        return {"backend": "mlx", "base_url": "fake", "reachable": self.up,
-                "detail": ""}
+        return {"backend": "mlx", "base_url": "fake", "reachable": self.up, "detail": ""}
 
 
 def _routing(ollama, mlx):
@@ -293,16 +317,23 @@ def test_persisted_mlx_falls_back_when_unavailable():
     p = _routing(o, m)
     sel = p.set_chat_model(qualify(MLX, "qwen3.6-35b"))
     assert sel["activated"] is False
-    assert p.chat_model == qualify(OLLAMA, "qwen3:30b")        # active fallback
+    assert p.chat_model == qualify(OLLAMA, "qwen3:30b")  # active fallback
     assert p.preferred_model() == qualify(MLX, "qwen3.6-35b")  # preference kept
     assert "unavailable" in sel["warning"]
 
 
 def test_ollama_fallback_uses_an_installed_chat_model():
-    o = _FakeOllama(models=[
-        {"name": "phi4", "size": 1, "parameter_size": "14B",
-         "can_chat": True, "can_embed": False},
-    ])
+    o = _FakeOllama(
+        models=[
+            {
+                "name": "phi4",
+                "size": 1,
+                "parameter_size": "14B",
+                "can_chat": True,
+                "can_embed": False,
+            },
+        ]
+    )
     p = _routing(o, _FakeMLX(up=False))
     p.set_chat_model(qualify(MLX, "qwen3.6-35b"))
     assert p.chat_model == qualify(OLLAMA, "phi4")
@@ -312,7 +343,7 @@ def test_mlx_becomes_reachable_after_startup():
     o, m = _FakeOllama(), _FakeMLX(up=False, models=("later-model",))
     p = _routing(o, m)
     assert not any(x["backend"] == MLX for x in p.list_models())
-    m.up = True                                   # server started after boot
+    m.up = True  # server started after boot
     assert any(x["name"] == qualify(MLX, "later-model") for x in p.list_models())
     p.set_chat_model(qualify(MLX, "later-model"))
     assert p.chat_model == qualify(MLX, "later-model")
@@ -322,7 +353,7 @@ def test_mlx_disappearing_while_active_falls_back():
     o, m = _FakeOllama(), _FakeMLX(up=True)
     p = _routing(o, m)
     p.set_chat_model(qualify(MLX, "qwen3.6-35b"))
-    m.up = False                                  # endpoint went away mid-session
+    m.up = False  # endpoint went away mid-session
     assert p.chat([{"role": "user", "content": "hi"}]) == "ollama-reply"
     assert p.chat_model == qualify(OLLAMA, "qwen3:30b")
     assert p.preferred_model() == qualify(MLX, "qwen3.6-35b")
@@ -330,7 +361,7 @@ def test_mlx_disappearing_while_active_falls_back():
 
 def test_malformed_saved_identifier_does_not_raise():
     p = _routing(_FakeOllama(), _FakeMLX(up=True))
-    sel = p.set_chat_model("weird::name::x")     # unknown prefix -> Ollama, absent
+    sel = p.set_chat_model("weird::name::x")  # unknown prefix -> Ollama, absent
     assert sel["activated"] is False
     assert p.chat_model == qualify(OLLAMA, "qwen3:30b")
     assert sel["warning"]
@@ -339,11 +370,11 @@ def test_malformed_saved_identifier_does_not_raise():
 
 
 def test_default_selection_is_env_chat_model():
-    p = RoutingProvider()                          # no saved preference
+    p = RoutingProvider()  # no saved preference
     assert p.chat_model == qualify(OLLAMA, CHAT_MODEL)
     assert p.preferred_model() == p.chat_model
     assert p.runtime_warning is None
-    assert p.mlx is not None                        # auto mode: provider available
+    assert p.mlx is not None  # auto mode: provider available
 
 
 def test_model_list_failure_is_isolated_per_provider():
@@ -375,13 +406,14 @@ def test_lifespan_survives_model_restore_failure(client, monkeypatch):
     db.set_setting(main.CHAT_MODEL_SETTING, "mlx::unavailable")
     monkeypatch.setattr(main, "get_llm", lambda: _Boom())
     try:
-        with TestClient(main.app):   # lifespan must swallow the failure and boot
+        with TestClient(main.app):  # lifespan must swallow the failure and boot
             pass
     finally:
         db.set_setting(main.CHAT_MODEL_SETTING, previous or "mock-chat")
 
 
 # ---------- capability metadata, caching & router (Phase 6) ----------
+
 
 class _FakeDetails:
     parameter_size = "8B"
@@ -429,18 +461,21 @@ def _ollama(caps, models=None, **kw):
 
 
 def test_ollama_capability_metadata_is_cached_and_refreshable():
-    p = _ollama({
-        "chat": ["completion", "tools", "thinking"],
-        "embed": ["embedding"],
-    }, context={"chat": 131072})
+    p = _ollama(
+        {
+            "chat": ["completion", "tools", "thinking"],
+            "embed": ["embedding"],
+        },
+        context={"chat": 131072},
+    )
 
     cold = p.list_models()
-    assert p.client.show_calls == 2              # cold: one show() per model
+    assert p.client.show_calls == 2  # cold: one show() per model
     warm = p.list_models()
-    assert p.client.show_calls == 2              # warm: cache, no show()
+    assert p.client.show_calls == 2  # warm: cache, no show()
     assert warm == cold
     p.list_models(refresh=True)
-    assert p.client.show_calls == 4              # refresh bypasses the cache
+    assert p.client.show_calls == 4  # refresh bypasses the cache
 
     chat = next(m for m in cold if m["name"] == "chat")
     assert chat["can_chat"] and chat["can_reason"] and chat["can_tools"]
@@ -453,8 +488,10 @@ def test_ollama_capability_metadata_is_cached_and_refreshable():
 
 
 def test_ollama_provider_state_healthy_degraded_offline():
-    healthy = _ollama({"qwen3:30b": ["completion"], "nomic-embed-text": ["embedding"]},
-                      models=["qwen3:30b", "nomic-embed-text"])
+    healthy = _ollama(
+        {"qwen3:30b": ["completion"], "nomic-embed-text": ["embedding"]},
+        models=["qwen3:30b", "nomic-embed-text"],
+    )
     healthy.chat_model, healthy.embed_model = "qwen3:30b", "nomic-embed-text"
     assert healthy.status()["state"] == "healthy"
 
@@ -474,7 +511,7 @@ def test_capability_router_selects_by_capability():
         {"name": "ollama::reasoner", "can_chat": True, "can_reason": True},
         {"name": "mlx::mlx-community/Thinker", "can_chat": True, "can_reason": True},
     ]
-    assert p.route("chat") == "ollama::chat"          # active model qualifies
+    assert p.route("chat") == "ollama::chat"  # active model qualifies
     assert p.route("reasoning") == "ollama::reasoner"  # first capable fallback
     assert p.route("vision") is None
 

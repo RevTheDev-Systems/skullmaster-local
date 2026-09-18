@@ -1,4 +1,5 @@
 """FastAPI app: notebooks, sources, grounded chat (SSE), audio overview, static UI."""
+
 import hashlib
 import json
 import logging
@@ -60,8 +61,11 @@ async def lifespan(app: FastAPI):
     if saved:
         try:
             llm.set_chat_model(saved)
-            log.info("Chat model restored from settings: %s (active: %s)",
-                     saved, getattr(llm, "chat_model", saved))
+            log.info(
+                "Chat model restored from settings: %s (active: %s)",
+                saved,
+                getattr(llm, "chat_model", saved),
+            )
         except Exception:
             # A preferred model whose backend is temporarily offline must never
             # prevent the app from booting; providers fall back and record a warning.
@@ -94,7 +98,8 @@ class _job:
         with _jobs_lock:
             if self.key in _jobs:
                 raise HTTPException(
-                    409, f"A {self.key[1]} is already being generated for this notebook")
+                    409, f"A {self.key[1]} is already being generated for this notebook"
+                )
             _jobs.add(self.key)
 
     def __exit__(self, *exc):
@@ -112,8 +117,12 @@ async def unhandled_error(request: Request, exc: Exception):
 
 # Reachable without a session: the login screen, its assets, and liveness.
 PUBLIC_PATHS = {
-    "/login", "/healthz", "/favicon.ico",
-    "/api/auth/status", "/api/auth/login", "/api/auth/setup",
+    "/login",
+    "/healthz",
+    "/favicon.ico",
+    "/api/auth/status",
+    "/api/auth/login",
+    "/api/auth/setup",
 }
 PUBLIC_PREFIXES = ("/static/",)
 
@@ -138,10 +147,11 @@ class PasswordIn(BaseModel):
 
 def _set_session_cookie(response: Response, token: str):
     response.set_cookie(
-        auth.COOKIE_NAME, token,
+        auth.COOKIE_NAME,
+        token,
         max_age=auth.SESSION_DAYS * 24 * 3600,
-        httponly=True,       # not readable from JavaScript
-        samesite="lax",      # not sent on cross-site requests
+        httponly=True,  # not readable from JavaScript
+        samesite="lax",  # not sent on cross-site requests
         path="/",
     )
 
@@ -222,6 +232,7 @@ class ChatIn(BaseModel):
 
 # ---------- Health ----------
 
+
 def _health() -> dict:
     llm = get_llm().status()
     tts = get_tts().status()
@@ -232,9 +243,13 @@ def _health() -> dict:
         database = {"ready": True, "path": str(SQLITE_PATH), **counts}
     except Exception as e:
         database = {"ready": False, "path": str(SQLITE_PATH), "error": str(e)}
-    ok = (llm.get("reachable", False) and llm.get("chat_model_ready", False)
-          and llm.get("embed_model_ready", False) and vector.get("ready", False)
-          and database["ready"])
+    ok = (
+        llm.get("reachable", False)
+        and llm.get("chat_model_ready", False)
+        and llm.get("embed_model_ready", False)
+        and vector.get("ready", False)
+        and database["ready"]
+    )
     return {
         "status": "ok" if ok else "degraded",
         "ok": ok,
@@ -255,6 +270,7 @@ def health():
 
 
 # ---------- Models ----------
+
 
 class ModelIn(BaseModel):
     name: str
@@ -301,7 +317,7 @@ def models_list(refresh: bool = False):
     return {
         "models": registry.get("models", []),
         "providers": registry.get("providers"),
-        "chat_model": llm.chat_model,                       # active runtime model
+        "chat_model": llm.chat_model,  # active runtime model
         "preferred_model": _llm_attr(llm, "preferred_model") or llm.chat_model,
         "warning": _llm_attr(llm, "runtime_warning"),
     }
@@ -329,11 +345,16 @@ def models_set_chat(body: ModelIn):
     else:
         active, warning = llm.chat_model, _llm_attr(llm, "runtime_warning")
     log.info("Chat model preference set to %s (active: %s)", body.name, active)
-    return {"ok": True, "chat_model": active or llm.chat_model,
-            "preferred_model": body.name, "warning": warning}
+    return {
+        "ok": True,
+        "chat_model": active or llm.chat_model,
+        "preferred_model": body.name,
+        "warning": warning,
+    }
 
 
 # ---------- Notebooks ----------
+
 
 @app.get("/api/notebooks")
 def notebooks_list():
@@ -356,7 +377,7 @@ def notebooks_rename(notebook_id: str, body: NotebookIn):
     if not name:
         raise HTTPException(400, "Notebook name is required")
     db.rename_notebook(notebook_id, name)
-    return {**db.get_notebook(notebook_id)}
+    return db.get_notebook(notebook_id) or {}
 
 
 @app.delete("/api/notebooks/{notebook_id}")
@@ -375,6 +396,7 @@ def notebooks_delete(notebook_id: str):
 
 
 # ---------- Sources ----------
+
 
 def _sanitize_filename(name: str) -> str:
     clean = re.sub(r"[^\w.\- ]", "_", Path(name).name).strip(". ")
@@ -397,15 +419,13 @@ def _delete_source_file(src: dict):
             p.unlink(missing_ok=True)
 
 
-def _index_chunks(notebook_id: str, source_id: str, source_name: str,
-                  chunks: list[dict]):
+def _index_chunks(notebook_id: str, source_id: str, source_name: str, chunks: list[dict]):
     """Embed + store chunks; raises HTTPException(503) on provider failure."""
     try:
         store.add_chunks(notebook_id, source_id, source_name, chunks)
     except Exception as e:
         log.exception("Indexing failed for source %s", source_id)
-        db.update_source(source_id, status="failed",
-                         error=f"Embedding/indexing failed: {e}")
+        db.update_source(source_id, status="failed", error=f"Embedding/indexing failed: {e}")
         raise HTTPException(503, f"Embedding failed (is the embedding model available?): {e}")
 
 
@@ -435,8 +455,7 @@ def sources_upload(notebook_id: str, file: UploadFile):
             if size > max_bytes:
                 f.close()
                 dest.unlink(missing_ok=True)
-                raise HTTPException(
-                    413, f"File exceeds the {max_bytes // (1024 * 1024)}MB limit")
+                raise HTTPException(413, f"File exceeds the {max_bytes // (1024 * 1024)}MB limit")
             f.write(chunk)
 
     try:
@@ -452,9 +471,16 @@ def sources_upload(notebook_id: str, file: UploadFile):
         dest.unlink(missing_ok=True)
         raise HTTPException(409, f'Already in this notebook as "{dup["name"]}"')
 
-    src = db.create_source(notebook_id, safe_name, kind, safe_name, pages,
-                           len(chunks), content_hash=content_hash,
-                           stored_path=str(dest))
+    src = db.create_source(
+        notebook_id,
+        safe_name,
+        kind,
+        safe_name,
+        pages,
+        len(chunks),
+        content_hash=content_hash,
+        stored_path=str(dest),
+    )
     _index_chunks(notebook_id, src["id"], src["name"], chunks)
     return db.get_source(src["id"])
 
@@ -475,8 +501,9 @@ def sources_add_url(notebook_id: str, body: UrlIn):
     if dup:
         raise HTTPException(409, f'Already in this notebook as "{dup["name"]}"')
 
-    src = db.create_source(notebook_id, title, "url", url, None, len(chunks),
-                           content_hash=content_hash)
+    src = db.create_source(
+        notebook_id, title, "url", url, None, len(chunks), content_hash=content_hash
+    )
     _index_chunks(notebook_id, src["id"], src["name"], chunks)
     return db.get_source(src["id"])
 
@@ -503,8 +530,7 @@ def sources_retry(notebook_id: str, source_id: str):
 
     chunks = chunk_segments(segments)
     store.delete_source_chunks(source_id)  # clear any partial index
-    db.update_source(source_id, chunk_count=len(chunks),
-                     content_hash=_content_hash(chunks))
+    db.update_source(source_id, chunk_count=len(chunks), content_hash=_content_hash(chunks))
     _index_chunks(notebook_id, source_id, src["name"], chunks)
     db.update_source(source_id, status="ready", error=None)
     return db.get_source(source_id)
@@ -523,19 +549,22 @@ def sources_delete(notebook_id: str, source_id: str):
 
 # ---------- Chat ----------
 
+
 @app.get("/api/notebooks/{notebook_id}/messages")
 def messages_list(notebook_id: str):
     if not db.get_notebook(notebook_id):
         raise HTTPException(404, "Notebook not found")
     out = []
     for m in db.list_messages(notebook_id):
-        out.append({
-            "role": m["role"],
-            "content": m["content"],
-            "citations": json.loads(m["citations"]) if m["citations"] else [],
-            "status": m.get("status", "completed"),
-            "error": m.get("error"),
-        })
+        out.append(
+            {
+                "role": m["role"],
+                "content": m["content"],
+                "citations": json.loads(m["citations"]) if m["citations"] else [],
+                "status": m.get("status", "completed"),
+                "error": m.get("error"),
+            }
+        )
     return out
 
 
@@ -562,8 +591,7 @@ def chat(notebook_id: str, body: ChatIn):
         chunks, tokens = answer_stream(notebook_id, body.question, body.history)
     except Exception as e:
         log.exception("Retrieval failed for notebook %s", notebook_id)
-        db.update_message(assistant["id"], status="interrupted",
-                          error=f"Retrieval failed: {e}")
+        db.update_message(assistant["id"], status="interrupted", error=f"Retrieval failed: {e}")
         raise HTTPException(503, "Could not retrieve sources for this question")
 
     sources_payload = [
@@ -582,15 +610,21 @@ def chat(notebook_id: str, body: ChatIn):
         full = ""
         finalized = False
 
-        def finalize(status: str, content: str, citations: str | None = None,
-                     error: str | None = None):
+        def finalize(
+            status: str, content: str, citations: str | None = None, error: str | None = None
+        ):
             nonlocal finalized
             if finalized:
                 return
             finalized = True
             try:
-                db.update_message(assistant["id"], content=content, status=status,
-                                  citations=citations, error=error)
+                db.update_message(
+                    assistant["id"],
+                    content=content,
+                    status=status,
+                    citations=citations,
+                    error=error,
+                )
             except Exception:
                 log.exception("Could not finalize message %s", assistant["id"])
 
@@ -605,7 +639,7 @@ def chat(notebook_id: str, body: ChatIn):
                     full += tok
                     yield f"event: token\ndata: {json.dumps(tok)}\n\n"
             except GeneratorExit:
-                finalize("interrupted", full)   # client went away mid-answer
+                finalize("interrupted", full)  # client went away mid-answer
                 raise
             except Exception as e:
                 log.exception("Chat stream failed")
@@ -626,6 +660,7 @@ def chat(notebook_id: str, body: ChatIn):
 
 # ---------- Studio: Audio Overview ----------
 
+
 @app.get("/api/notebooks/{notebook_id}/audio-overviews")
 def audio_overviews_list(notebook_id: str):
     if not db.get_notebook(notebook_id):
@@ -641,13 +676,15 @@ def audio_overview(notebook_id: str):
     if not db.get_notebook(notebook_id):
         raise HTTPException(404, "Notebook not found")
     from . import studio
+
     with _job(notebook_id, "audio overview"):
         try:
             meta = studio.generate_audio_overview(notebook_id)
         except studio.StudioError as e:
             raise HTTPException(422, str(e))
-    db.create_audio_overview(notebook_id, meta["filename"], meta["title"],
-                             meta["duration_seconds"], meta["lines"])
+    db.create_audio_overview(
+        notebook_id, meta["filename"], meta["title"], meta["duration_seconds"], meta["lines"]
+    )
     meta["url"] = f"/api/audio/{meta['filename']}"
     return meta
 
@@ -662,6 +699,7 @@ def get_audio(filename: str):
 
 
 # ---------- Studio: chart / infographic / spreadsheet artifacts ----------
+
 
 class ArtifactIn(BaseModel):
     kind: str
@@ -694,6 +732,7 @@ def artifacts_create(notebook_id: str, body: ArtifactIn):
     if not db.get_notebook(notebook_id):
         raise HTTPException(404, "Notebook not found")
     from . import studio
+
     if body.kind not in studio.ARTIFACT_PROMPTS:
         raise HTTPException(400, f"Unknown artifact kind: {body.kind}")
     with _job(notebook_id, body.kind):
@@ -705,9 +744,13 @@ def artifacts_create(notebook_id: str, body: ArtifactIn):
     if body.kind == "spreadsheet":
         file_path = ARTIFACTS_DIR / f"{notebook_id}_{uuid.uuid4().hex[:8]}.xlsx"
         studio.write_xlsx(spec, file_path)
-    row = db.create_artifact(notebook_id, body.kind, spec["title"],
-                             json.dumps(spec),
-                             str(file_path) if file_path else None)
+    row = db.create_artifact(
+        notebook_id,
+        body.kind,
+        spec["title"],
+        json.dumps(spec),
+        str(file_path) if file_path else None,
+    )
     return _artifact_out(row)
 
 
@@ -740,10 +783,18 @@ def artifact_file(artifact_id: str):
 # ---------- Media playback for video/audio sources ----------
 
 MEDIA_TYPES = {
-    ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
-    ".webm": "video/webm", ".mkv": "video/x-matroska", ".avi": "video/x-msvideo",
-    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4",
-    ".flac": "audio/flac", ".ogg": "audio/ogg", ".aac": "audio/aac",
+    ".mp4": "video/mp4",
+    ".m4v": "video/mp4",
+    ".mov": "video/quicktime",
+    ".webm": "video/webm",
+    ".mkv": "video/x-matroska",
+    ".avi": "video/x-msvideo",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".m4a": "audio/mp4",
+    ".flac": "audio/flac",
+    ".ogg": "audio/ogg",
+    ".aac": "audio/aac",
 }
 
 

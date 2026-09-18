@@ -1,5 +1,6 @@
 """Integration tests: real FastAPI app + real LanceDB/SQLite in a temp dir,
 mock LLM/TTS providers (final acceptance against real models is run separately)."""
+
 import io
 
 from app import db, main, store
@@ -17,6 +18,7 @@ def _upload(client, nb_id, name=b"doc.txt", content=TXT):
 
 # ---------- health ----------
 
+
 def test_health_shape(client):
     body = client.get("/health").json()
     assert body["product"] == "SkullMaster iQ"
@@ -28,6 +30,7 @@ def test_health_shape(client):
 
 
 # ---------- notebooks ----------
+
 
 def test_notebook_crud(client):
     nb = client.post("/api/notebooks", json={"name": "Alpha"}).json()
@@ -48,12 +51,13 @@ def test_notebook_crud(client):
 
 # ---------- sources ----------
 
+
 def test_upload_and_index(client, notebook):
     res = _upload(client, notebook["id"])
     assert res.status_code == 200, res.text
     src = res.json()
     assert src["status"] == "ready" and src["chunk_count"] == 1
-    assert (UPLOADS_DIR in [p for p in [UPLOADS_DIR]])  # dir exists
+    assert UPLOADS_DIR in [p for p in [UPLOADS_DIR]]  # dir exists
     chunks = store.notebook_chunks(notebook["id"])
     assert len(chunks) == 1 and "wombat" in chunks[0]["text"]
 
@@ -72,17 +76,22 @@ def test_unsupported_and_empty_files(client, notebook):
 
 
 def test_corrupt_documents_rejected_422(client, notebook):
-    for name, data in [(b"bad.pdf", b"%PDF-1.4 broken"),
-                       (b"bad.docx", b"not a docx"),
-                       (b"bad.xlsx", b"not a zip")]:
+    for name, data in [
+        (b"bad.pdf", b"%PDF-1.4 broken"),
+        (b"bad.docx", b"not a docx"),
+        (b"bad.xlsx", b"not a zip"),
+    ]:
         res = _upload(client, notebook["id"], name=name, content=data)
         assert res.status_code == 422, (name, res.status_code, res.text)
 
 
 def test_unicode_filename_upload(client, notebook):
-    res = _upload(client, notebook["id"],
-                  name="données café.txt".encode(),
-                  content="Contenu accentué — 日本語".encode())
+    res = _upload(
+        client,
+        notebook["id"],
+        name="données café.txt".encode(),
+        content="Contenu accentué — 日本語".encode(),
+    )
     assert res.status_code == 200, res.text
     assert "café" in res.json()["name"]
 
@@ -102,6 +111,7 @@ def test_source_delete_removes_vectors_and_file(client, notebook):
     assert res.json() == {"ok": True}
     assert store.notebook_chunks(notebook["id"]) == []
     import pathlib
+
     assert not pathlib.Path(stored).exists()
 
 
@@ -114,23 +124,24 @@ def test_failed_source_and_retry(client, notebook, mock_llm):
     assert sources[0]["error"]
 
     mock_llm.fail_embeds = False
-    retry = client.post(
-        f"/api/notebooks/{notebook['id']}/sources/{sources[0]['id']}/retry")
+    retry = client.post(f"/api/notebooks/{notebook['id']}/sources/{sources[0]['id']}/retry")
     assert retry.status_code == 200 and retry.json()["status"] == "ready"
     assert len(store.notebook_chunks(notebook["id"])) == 1
 
     # retrying a ready source is a 400
-    again = client.post(
-        f"/api/notebooks/{notebook['id']}/sources/{sources[0]['id']}/retry")
+    again = client.post(f"/api/notebooks/{notebook['id']}/sources/{sources[0]['id']}/retry")
     assert again.status_code == 400
 
 
 # ---------- chat ----------
 
+
 def test_chat_streams_and_persists(client, notebook):
     _upload(client, notebook["id"])
-    res = client.post(f"/api/notebooks/{notebook['id']}/chat",
-                      json={"question": "What do tickets cost?", "history": []})
+    res = client.post(
+        f"/api/notebooks/{notebook['id']}/chat",
+        json={"question": "What do tickets cost?", "history": []},
+    )
     body = res.text
     assert "event: sources" in body and "event: done" in body
     # invalid citation [9] stripped, valid [1] kept
@@ -153,17 +164,19 @@ def test_chat_model_failure_keeps_turn_as_interrupted(client, notebook, monkeypa
         def tokens():
             yield "Partial answer"
             raise RuntimeError("model crashed")
+
         return [], tokens()
 
     monkeypatch.setattr(main, "answer_stream", fake_answer)
-    res = client.post(f"/api/notebooks/{notebook['id']}/chat",
-                      json={"question": "q", "history": []})
+    res = client.post(
+        f"/api/notebooks/{notebook['id']}/chat", json={"question": "q", "history": []}
+    )
     assert "event: error" in res.text
 
     msgs = client.get(f"/api/notebooks/{notebook['id']}/messages").json()
     assert [m["role"] for m in msgs] == ["user", "assistant"]
     assert msgs[1]["status"] == "interrupted"
-    assert msgs[1]["content"] == "Partial answer"          # partial kept, not lost
+    assert msgs[1]["content"] == "Partial answer"  # partial kept, not lost
     assert "model crashed" in (msgs[1]["error"] or "")
     assert msgs[1]["citations"] == []
 
@@ -173,8 +186,9 @@ def test_chat_retrieval_failure_keeps_turn_as_interrupted(client, notebook, monk
         raise RuntimeError("embedding backend down")
 
     monkeypatch.setattr(main, "answer_stream", boom)
-    res = client.post(f"/api/notebooks/{notebook['id']}/chat",
-                      json={"question": "q", "history": []})
+    res = client.post(
+        f"/api/notebooks/{notebook['id']}/chat", json={"question": "q", "history": []}
+    )
     assert res.status_code == 503
 
     msgs = client.get(f"/api/notebooks/{notebook['id']}/messages").json()
@@ -184,12 +198,14 @@ def test_chat_retrieval_failure_keeps_turn_as_interrupted(client, notebook, monk
 
 
 def test_chat_empty_notebook_declines(client, notebook):
-    res = client.post(f"/api/notebooks/{notebook['id']}/chat",
-                      json={"question": "Anything?", "history": []})
+    res = client.post(
+        f"/api/notebooks/{notebook['id']}/chat", json={"question": "Anything?", "history": []}
+    )
     assert "couldn't find this in your sources" in res.text
 
 
 # ---------- audio overview ----------
+
 
 def test_audio_overview_generated_and_persisted(client, notebook):
     _upload(client, notebook["id"])
@@ -214,6 +230,7 @@ def test_audio_overview_empty_notebook_422(client, notebook):
 
 # ---------- deletion cleanup + persistence ----------
 
+
 def test_notebook_delete_cleans_everything(client, notebook):
     nb_id = notebook["id"]
     src = _upload(client, nb_id).json()
@@ -225,6 +242,7 @@ def test_notebook_delete_cleans_everything(client, notebook):
 
     client.delete(f"/api/notebooks/{nb_id}")
     import pathlib
+
     assert not pathlib.Path(stored).exists()
     assert not wav.exists()
     assert store.notebook_chunks(nb_id) == []
@@ -235,8 +253,8 @@ def test_notebook_delete_cleans_everything(client, notebook):
 def test_data_survives_client_restart(client, notebook):
     """Same on-disk stores, new app lifecycle — metadata and vectors persist."""
     from fastapi.testclient import TestClient
-    from app import main as main_mod
 
+    from app import main as main_mod
     from tests.conftest import TEST_PASSWORD
 
     _upload(client, notebook["id"])
@@ -251,6 +269,7 @@ def test_data_survives_client_restart(client, notebook):
 
 # ---------- acceptance journey (Phase 10) ----------
 
+
 def test_favicon_served(client):
     res = client.get("/favicon.ico")
     assert res.status_code == 200
@@ -262,6 +281,7 @@ def test_full_acceptance_journey(client, notebook):
     authenticated client; ingest → chat+citations → artifacts/audio → delete →
     restart → persistence."""
     from fastapi.testclient import TestClient
+
     from app import main as main_mod
     from tests.conftest import TEST_PASSWORD
 
@@ -270,8 +290,9 @@ def test_full_acceptance_journey(client, notebook):
     # ingest, then ask a grounded question
     src = _upload(client, nb).json()
     assert src["status"] == "ready"
-    chat = client.post(f"/api/notebooks/{nb}/chat",
-                       json={"question": "How much do tickets cost?", "history": []})
+    chat = client.post(
+        f"/api/notebooks/{nb}/chat", json={"question": "How much do tickets cost?", "history": []}
+    )
     assert "event: sources" in chat.text and "event: done" in chat.text
 
     msgs = client.get(f"/api/notebooks/{nb}/messages").json()
@@ -280,8 +301,7 @@ def test_full_acceptance_journey(client, notebook):
 
     # studio: one visual, one text, one audio
     chart = client.post(f"/api/notebooks/{nb}/artifacts", json={"kind": "chart"}).json()
-    briefing = client.post(f"/api/notebooks/{nb}/artifacts",
-                           json={"kind": "briefing"}).json()
+    briefing = client.post(f"/api/notebooks/{nb}/artifacts", json={"kind": "briefing"}).json()
     audio = client.post(f"/api/notebooks/{nb}/audio-overview").json()
     assert chart["kind"] == "chart" and briefing["kind"] == "briefing"
     assert audio["url"].startswith("/api/audio/")

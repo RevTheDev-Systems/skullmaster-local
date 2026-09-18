@@ -1,4 +1,5 @@
 """Structure-aware chunking: split on paragraph boundaries, keep page metadata."""
+
 from .config import CHUNK_CHARS, CHUNK_OVERLAP
 
 

@@ -4,10 +4,11 @@ Weights download once from HuggingFace into models/whisper/ on first use —
 same download-once policy as the Kokoro TTS weights. Video containers are
 decoded directly (PyAV), so no external ffmpeg is required.
 """
+
 import logging
 import threading
 
-from ..config import MODELS_DIR, STT_MODEL
+from ..config import MODELS_DIR
 
 log = logging.getLogger(__name__)
 
@@ -24,9 +25,12 @@ class WhisperSTT:
         with self._lock:
             if self._model is None:
                 from faster_whisper import WhisperModel
+
                 log.info("Loading whisper-%s (downloads on first use)…", self.size)
                 self._model = WhisperModel(
-                    self.size, device="cpu", compute_type="int8",
+                    self.size,
+                    device="cpu",
+                    compute_type="int8",
                     download_root=str(WHISPER_DIR),
                 )
         return self._model
@@ -36,10 +40,16 @@ class WhisperSTT:
         segments, info = model.transcribe(path, vad_filter=True)
         out = [
             {"start": s.start, "end": s.end, "text": s.text.strip()}
-            for s in segments if s.text.strip()
+            for s in segments
+            if s.text.strip()
         ]
-        log.info("Transcribed %s: %d segments, %.0fs audio, lang=%s",
-                 path, len(out), info.duration, info.language)
+        log.info(
+            "Transcribed %s: %d segments, %.0fs audio, lang=%s",
+            path,
+            len(out),
+            info.duration,
+            info.language,
+        )
         return out
 
     def _cached(self) -> bool:
@@ -51,6 +61,7 @@ class WhisperSTT:
             "backend": "faster-whisper",
             "model": self.size,
             "ready": True,
-            "detail": "weights present" if cached
+            "detail": "weights present"
+            if cached
             else "weights will download on first transcription",
         }

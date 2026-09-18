@@ -4,6 +4,7 @@ Fixtures are generated on the fly (no binaries committed) so each source type
 has both a valid sample and a deliberately broken sample, and the documented
 matrix is asserted against the parser.
 """
+
 import urllib.error
 
 import fitz
@@ -14,8 +15,8 @@ from openpyxl import Workbook
 from app import ingest
 from app.chunker import chunk_segments
 
-
 # ---------- fixture builders ----------
+
 
 def _txt(path, text="Hello text content."):
     path.write_text(text, encoding="utf-8")
@@ -33,7 +34,7 @@ def _pdf(path, pages=("Hello from page one.", "Page two has more content.")):
 
 def _blank_pdf(path):
     doc = fitz.open()
-    doc.new_page()          # page with no text layer (i.e. a scan)
+    doc.new_page()  # page with no text layer (i.e. a scan)
     doc.save(str(path))
     doc.close()
     return path
@@ -86,25 +87,32 @@ class _FakeResponse:
 
 # ---------- matrix ----------
 
+
 def test_ingestion_matrix_covers_required_kinds():
     kinds = {row["kind"] for row in ingest.INGESTION_MATRIX}
     assert {"pdf", "docx", "sheet", "text", "html", "url", "audio", "video"} <= kinds
     for row in ingest.INGESTION_MATRIX:
         assert row["citation"] in ("page", "passage", "seek")
         assert row["retry"] is True
-    assert "ocr" not in kinds            # OCR is a future capability, not default
+    assert "ocr" not in kinds  # OCR is a future capability, not default
 
 
-@pytest.mark.parametrize("kind,ext,builder,expected_pages", [
-    ("pdf", ".pdf", _pdf, 2),
-    ("docx", ".docx", _docx, None),
-    ("sheet", ".xlsx", _xlsx, None),
-    ("text", ".txt", _txt, None),
-    ("text", ".md", _txt, None),
-    ("html", ".html",
-     lambda p: _txt(p, "<html><body><h1>H</h1><p>Body words here.</p></body></html>"),
-     None),
-])
+@pytest.mark.parametrize(
+    "kind,ext,builder,expected_pages",
+    [
+        ("pdf", ".pdf", _pdf, 2),
+        ("docx", ".docx", _docx, None),
+        ("sheet", ".xlsx", _xlsx, None),
+        ("text", ".txt", _txt, None),
+        ("text", ".md", _txt, None),
+        (
+            "html",
+            ".html",
+            lambda p: _txt(p, "<html><body><h1>H</h1><p>Body words here.</p></body></html>"),
+            None,
+        ),
+    ],
+)
 def test_supported_source_positives(tmp_path, kind, ext, builder, expected_pages):
     path = builder(tmp_path / f"sample{ext}")
     parsed_kind, pages, segments = ingest.parse_file(path)
@@ -115,6 +123,7 @@ def test_supported_source_positives(tmp_path, kind, ext, builder, expected_pages
 
 
 # ---------- negatives: broken/empty/unsupported ----------
+
 
 def test_zero_byte_and_corrupt_files_raise_ingest_error(tmp_path):
     cases = {
@@ -151,10 +160,12 @@ def test_empty_spreadsheet_raises(tmp_path):
 
 # ---------- HTML parsing ----------
 
+
 def test_html_is_parsed_not_raw(tmp_path):
-    path = _txt(tmp_path / "p.html",
-                "<html><body><script>evil()</script><h1>Head</h1>"
-                "<p>Body words.</p></body></html>")
+    path = _txt(
+        tmp_path / "p.html",
+        "<html><body><script>evil()</script><h1>Head</h1><p>Body words.</p></body></html>",
+    )
     kind, _, segments = ingest.parse_file(path)
     text = segments[0][1]
     assert kind == "html"
@@ -163,6 +174,7 @@ def test_html_is_parsed_not_raw(tmp_path):
 
 
 # ---------- Unicode ----------
+
 
 def test_unicode_content_is_preserved(tmp_path):
     text = "Données — 日本語 — Ω — satellite 🛰️"
@@ -193,9 +205,9 @@ def test_unusual_spreadsheet_values(tmp_path):
 
 # ---------- large inputs ----------
 
+
 def test_large_document_chunks_without_error(tmp_path):
-    big = "\n\n".join(f"Paragraph {i} " + "lorem ipsum dolor " * 20
-                      for i in range(600))
+    big = "\n\n".join(f"Paragraph {i} " + "lorem ipsum dolor " * 20 for i in range(600))
     _, _, segments = ingest.parse_file(_txt(tmp_path / "big.txt", big))
     chunks = chunk_segments(segments)
     assert len(chunks) > 20
@@ -204,15 +216,22 @@ def test_large_document_chunks_without_error(tmp_path):
 
 # ---------- media (STT mocked) ----------
 
+
 def test_media_timestamps_and_packing(tmp_path, monkeypatch):
-    long_text = "sensor array telemetry " * 250        # > CHUNK_CHARS
-    monkeypatch.setattr(ingest, "get_stt", lambda: _FakeSTT([
-        {"start": 0.0, "end": 5.0, "text": long_text},
-        {"start": 42, "end": 50.0, "text": long_text},
-    ]))
+    long_text = "sensor array telemetry " * 250  # > CHUNK_CHARS
+    monkeypatch.setattr(
+        ingest,
+        "get_stt",
+        lambda: _FakeSTT(
+            [
+                {"start": 0.0, "end": 5.0, "text": long_text},
+                {"start": 42, "end": 50.0, "text": long_text},
+            ]
+        ),
+    )
     kind, pages, segments = ingest.parse_file(_txt(tmp_path / "clip.mp4", "x"))
     assert kind == "video" and pages is None
-    assert [sec for sec, _ in segments] == [0, 42]     # start seconds preserved
+    assert [sec for sec, _ in segments] == [0, 42]  # start seconds preserved
 
 
 def test_media_no_speech_raises(tmp_path, monkeypatch):
@@ -222,13 +241,13 @@ def test_media_no_speech_raises(tmp_path, monkeypatch):
 
 
 def test_media_transcription_failure_is_wrapped(tmp_path, monkeypatch):
-    monkeypatch.setattr(ingest, "get_stt",
-                        lambda: _FakeSTT(error=RuntimeError("whisper boom")))
+    monkeypatch.setattr(ingest, "get_stt", lambda: _FakeSTT(error=RuntimeError("whisper boom")))
     with pytest.raises(ingest.IngestError, match="Transcription failed"):
         ingest.parse_file(_txt(tmp_path / "bad.mp3", "x"))
 
 
 # ---------- URL ----------
+
 
 def test_url_rejects_non_http_schemes():
     for url in ("file:///etc/passwd", "ftp://example.com/x", "javascript:alert(1)"):
@@ -239,12 +258,14 @@ def test_url_rejects_non_http_schemes():
 def test_url_timeout_and_redirect_loop_are_wrapped(monkeypatch):
     def timeout(*a, **k):
         raise TimeoutError("timed out")
+
     monkeypatch.setattr(ingest.urllib.request, "urlopen", timeout)
     with pytest.raises(ingest.IngestError, match="Could not fetch"):
         ingest.parse_url("https://example.com/a")
 
     def redirect_loop(*a, **k):
         raise urllib.error.HTTPError("https://x", 302, "too many redirects", None, None)
+
     monkeypatch.setattr(ingest.urllib.request, "urlopen", redirect_loop)
     with pytest.raises(ingest.IngestError, match="Could not fetch"):
         ingest.parse_url("https://example.com/loop")
@@ -252,26 +273,28 @@ def test_url_timeout_and_redirect_loop_are_wrapped(monkeypatch):
 
 def test_url_oversize_body_rejected(monkeypatch):
     big = b"x" * (ingest.URL_MAX_BYTES + 10)
-    monkeypatch.setattr(ingest.urllib.request, "urlopen",
-                        lambda *a, **k: _FakeResponse(big))
+    monkeypatch.setattr(ingest.urllib.request, "urlopen", lambda *a, **k: _FakeResponse(big))
     with pytest.raises(ingest.IngestError, match="exceed"):
         ingest.parse_url("https://example.com/huge")
 
 
 def test_url_without_readable_content_raises(monkeypatch):
-    monkeypatch.setattr(ingest.urllib.request, "urlopen",
-                        lambda *a, **k: _FakeResponse(b"<html><body></body></html>"))
+    monkeypatch.setattr(
+        ingest.urllib.request,
+        "urlopen",
+        lambda *a, **k: _FakeResponse(b"<html><body></body></html>"),
+    )
     with pytest.raises(ingest.IngestError, match="No readable"):
         ingest.parse_url("https://example.com/empty")
 
 
 def test_url_positive(monkeypatch):
-    html = ("<html><head><title>My Article</title></head><body>"
-            + "".join(f"<p>Paragraph {i} about the Atlas sensor network.</p>"
-                      for i in range(20))
-            + "</body></html>").encode()
-    monkeypatch.setattr(ingest.urllib.request, "urlopen",
-                        lambda *a, **k: _FakeResponse(html))
+    html = (
+        "<html><head><title>My Article</title></head><body>"
+        + "".join(f"<p>Paragraph {i} about the Atlas sensor network.</p>" for i in range(20))
+        + "</body></html>"
+    ).encode()
+    monkeypatch.setattr(ingest.urllib.request, "urlopen", lambda *a, **k: _FakeResponse(html))
     title, segments = ingest.parse_url("https://example.com/article")
     assert title == "My Article"
     assert "Atlas sensor network" in segments[0][1]

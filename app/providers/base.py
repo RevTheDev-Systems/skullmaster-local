@@ -1,4 +1,5 @@
 """Provider interfaces. App code depends only on these — never on a concrete backend."""
+
 from collections.abc import Iterator
 from typing import Protocol
 
@@ -6,13 +7,14 @@ from typing import Protocol
 class LLMProvider(Protocol):
     """Chat + embeddings backend (Ollama today; any OpenAI-compatible endpoint tomorrow)."""
 
+    chat_model: str  # the active model id
+
     def chat(self, messages: list[dict], stream: bool = False) -> str | Iterator[str]:
         """Non-stream: returns full text. Stream: returns iterator of text deltas.
         Reasoning/thinking tokens are never included in the output."""
         ...
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        ...
+    def embed(self, texts: list[str]) -> list[list[float]]: ...
 
     def ensure_models(self) -> dict:
         """Verify configured models exist; pull them if missing.

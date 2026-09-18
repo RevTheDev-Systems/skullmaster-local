@@ -1,4 +1,5 @@
 """Narrow unit tests: chunking, citation validation, filename/URL safety."""
+
 import pytest
 
 from app import ingest
@@ -43,12 +44,15 @@ def test_sanitize_filename():
     assert _sanitize_filename("report v2.pdf") == "report v2.pdf"
 
 
-@pytest.mark.parametrize("url", [
-    "file:///etc/passwd",
-    "ftp://example.com/x",
-    "javascript:alert(1)",
-    "not-a-url",
-])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///etc/passwd",
+        "ftp://example.com/x",
+        "javascript:alert(1)",
+        "not-a-url",
+    ],
+)
 def test_url_scheme_rejected(url):
     with pytest.raises(ingest.IngestError):
         ingest.parse_url(url)

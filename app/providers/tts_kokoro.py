@@ -1,4 +1,5 @@
 """Kokoro-82M TTS via kokoro-onnx. Weights auto-download once into models/; runtime is offline."""
+
 import logging
 import threading
 import urllib.request
@@ -36,6 +37,7 @@ class KokoroTTS:
             if self._kokoro is None:
                 self.ensure_weights()
                 from kokoro_onnx import Kokoro
+
                 self._kokoro = Kokoro(str(MODEL_FILE), str(VOICES_FILE))
         return self._kokoro
 
@@ -50,5 +52,7 @@ class KokoroTTS:
         return {
             "backend": "kokoro",
             "ready": weights,
-            "detail": "weights present" if weights else "weights will download on first use (~340MB)",
+            "detail": "weights present"
+            if weights
+            else "weights will download on first use (~340MB)",
         }

@@ -9,6 +9,7 @@ Design notes:
 - There is no default or fallback password. Until the owner sets one on first run,
   the app reports `setup_required` and refuses to authenticate anything.
 """
+
 import hashlib
 import hmac
 import os
@@ -44,6 +45,7 @@ class AuthError(Exception):
 
 # ---------- password hashing ----------
 
+
 def _derive(password: str, salt: bytes, iterations: int) -> bytes:
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
 
@@ -73,6 +75,7 @@ def verify_password(password: str) -> bool:
 
 # ---------- throttling ----------
 
+
 def _throttle_key(client: str) -> str:
     return client or "unknown"
 
@@ -96,6 +99,7 @@ def clear_failures(client: str):
 
 
 # ---------- sessions ----------
+
 
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()

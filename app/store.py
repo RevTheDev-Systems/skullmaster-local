@@ -3,6 +3,7 @@
 LanceDB was chosen over Chroma: embedded (zero server processes), columnar with
 fast ANN + SQL-style metadata filtering, and trivially portable (one directory).
 """
+
 import hashlib
 import re
 
@@ -32,8 +33,7 @@ def _chunk_id(source_id: str, seq: int, text: str) -> str:
     return f"ch_{digest}"
 
 
-def add_chunks(notebook_id: str, source_id: str, source_name: str,
-               chunks: list[dict], llm=None):
+def add_chunks(notebook_id: str, source_id: str, source_name: str, chunks: list[dict], llm=None):
     """Embed + store chunks. `llm` is injectable for benchmarks/tests."""
     vectors = (llm or get_llm()).embed([c["text"] for c in chunks])
     rows = [
@@ -72,12 +72,7 @@ def _notebook_rows(notebook_id: str) -> list[dict]:
     tbl = _table()
     if tbl is None:
         return []
-    return (
-        tbl.search()
-        .where(f"notebook_id = '{notebook_id}'")
-        .limit(100_000)
-        .to_list()
-    )
+    return tbl.search().where(f"notebook_id = '{notebook_id}'").limit(100_000).to_list()
 
 
 def notebook_chunks(notebook_id: str) -> list[dict]:
@@ -104,8 +99,7 @@ def status() -> dict:
     }
 
 
-def hybrid_search(notebook_id: str, query: str, k: int = TOP_K,
-                  llm=None) -> list[dict]:
+def hybrid_search(notebook_id: str, query: str, k: int = TOP_K, llm=None) -> list[dict]:
     """Vector + BM25 retrieval merged with reciprocal rank fusion.
 
     `llm` is injectable so the evaluation harness can run deterministically.

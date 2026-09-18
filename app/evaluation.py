@@ -15,6 +15,7 @@ Usage:
     python -m app.evaluation --no-generate      # retrieval metrics only (fast)
     python -m app.evaluation --json evals/baseline.json
 """
+
 from __future__ import annotations
 
 import json
@@ -32,6 +33,7 @@ REFUSAL_PATTERNS = (
 
 
 # ---------- corpus ----------
+
 
 def load_corpus(path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -53,6 +55,7 @@ def _page_count(doc: dict) -> int | None:
 
 # ---------- metric primitives (pure, unit-tested) ----------
 
+
 def _doc_order(chunks: list[dict]) -> list[str]:
     """Unique source keys in ranked order (document-level retrieval order)."""
     order: list[str] = []
@@ -63,8 +66,9 @@ def _doc_order(chunks: list[dict]) -> list[str]:
     return order
 
 
-def recall_at_k(retrieved_keys: list[str], relevant: list[str],
-                match: str = "all", k: int | None = None) -> float | None:
+def recall_at_k(
+    retrieved_keys: list[str], relevant: list[str], match: str = "all", k: int | None = None
+) -> float | None:
     """Document-level Recall@K. 'all' = fraction of relevant docs retrieved;
     'any' = 1.0 if at least one relevant doc is retrieved. None if no labels."""
     if not relevant:
@@ -95,18 +99,17 @@ def citation_correctness(answer: str, chunks: list[dict], relevant) -> float | N
     if not numbers:
         return None
     rel = set(relevant)
-    good = sum(1 for n in numbers
-               if 1 <= n <= len(chunks) and chunks[n - 1].get("_key") in rel)
+    good = sum(1 for n in numbers if 1 <= n <= len(chunks) and chunks[n - 1].get("_key") in rel)
     return good / len(numbers)
 
 
-def citation_completeness(answer: str, chunks: list[dict],
-                          required_keys: list[str]) -> float | None:
+def citation_completeness(
+    answer: str, chunks: list[dict], required_keys: list[str]
+) -> float | None:
     """Fraction of required source keys that appear among the cited chunks."""
     if not required_keys:
         return None
-    cited = {chunks[n - 1].get("_key") for n in _citation_numbers(answer)
-             if 1 <= n <= len(chunks)}
+    cited = {chunks[n - 1].get("_key") for n in _citation_numbers(answer) if 1 <= n <= len(chunks)}
     required = set(required_keys)
     return len(cited & required) / len(required)
 
@@ -135,9 +138,18 @@ def _mean(values) -> float | None:
 
 # ---------- harness ----------
 
-def evaluate(corpus: dict, *, llm, k_values=(1, 3, 8), generate: bool = True,
-             store_mod=None, db_mod=None, rag_mod=None,
-             notebook_name: str | None = None) -> dict:
+
+def evaluate(
+    corpus: dict,
+    *,
+    llm,
+    k_values=(1, 3, 8),
+    generate: bool = True,
+    store_mod=None,
+    db_mod=None,
+    rag_mod=None,
+    notebook_name: str | None = None,
+) -> dict:
     """Ingest the corpus into an isolated notebook and score every question."""
     from .chunker import chunk_segments
 
@@ -148,9 +160,8 @@ def evaluate(corpus: dict, *, llm, k_values=(1, 3, 8), generate: bool = True,
     if rag_mod is None:
         from . import rag as rag_mod
 
-    db_mod.init_db()   # idempotent; makes the harness usable standalone
-    notebook = db_mod.create_notebook(
-        notebook_name or f"eval::{corpus.get('name', 'corpus')}")
+    db_mod.init_db()  # idempotent; makes the harness usable standalone
+    notebook = db_mod.create_notebook(notebook_name or f"eval::{corpus.get('name', 'corpus')}")
     notebook_id = notebook["id"]
     key_by_source: dict[str, str] = {}
     max_k = max(k_values)
@@ -159,18 +170,22 @@ def evaluate(corpus: dict, *, llm, k_values=(1, 3, 8), generate: bool = True,
         for doc in corpus["documents"]:
             chunks = chunk_segments(doc_segments(doc))
             source = db_mod.create_source(
-                notebook_id, doc["name"], doc.get("kind", "text"),
-                doc.get("name"), _page_count(doc), len(chunks), status="ready")
+                notebook_id,
+                doc["name"],
+                doc.get("kind", "text"),
+                doc.get("name"),
+                _page_count(doc),
+                len(chunks),
+                status="ready",
+            )
             key_by_source[source["id"]] = doc["key"]
-            store_mod.add_chunks(notebook_id, source["id"], doc["name"],
-                                 chunks, llm=llm)
+            store_mod.add_chunks(notebook_id, source["id"], doc["name"], chunks, llm=llm)
 
         per_question = []
         for q in corpus["questions"]:
             relevant = q.get("relevant", [])
             match = q.get("match", "all")
-            retrieved = store_mod.hybrid_search(
-                notebook_id, q["question"], k=max_k, llm=llm)
+            retrieved = store_mod.hybrid_search(notebook_id, q["question"], k=max_k, llm=llm)
             for c in retrieved:
                 c["_key"] = key_by_source.get(c["source_id"])
             order = _doc_order(retrieved)
@@ -179,29 +194,30 @@ def evaluate(corpus: dict, *, llm, k_values=(1, 3, 8), generate: bool = True,
                 "id": q["id"],
                 "category": q["category"],
                 "retrieved": order,
-                "recall": {f"@{k}": recall_at_k(order, relevant, match, k)
-                           for k in k_values},
+                "recall": {f"@{k}": recall_at_k(order, relevant, match, k) for k in k_values},
                 "rr": reciprocal_rank(retrieved, relevant) if relevant else None,
                 "page_hit": page_hit(retrieved, q.get("expected_page")),
             }
 
             if generate:
-                chunks, tokens = rag_mod.answer_stream(
-                    notebook_id, q["question"], [], llm=llm)
+                chunks, tokens = rag_mod.answer_stream(notebook_id, q["question"], [], llm=llm)
                 for c in chunks:
                     c["_key"] = key_by_source.get(c["source_id"])
                 answer = "".join(tokens)
                 row["answer"] = answer
                 row["citation_correctness"] = (
-                    citation_correctness(answer, chunks, relevant) if relevant else None)
+                    citation_correctness(answer, chunks, relevant) if relevant else None
+                )
                 row["citation_completeness"] = citation_completeness(
-                    answer, chunks, q.get("citation_required", []))
-                row["unsupported_claim"] = has_unsupported_claim(
-                    answer, q.get("must_not", []))
+                    answer, chunks, q.get("citation_required", [])
+                )
+                row["unsupported_claim"] = has_unsupported_claim(answer, q.get("must_not", []))
                 row["refusal"] = is_refusal(answer) if q.get("expected_refusal") else None
                 row["facts_covered"] = (
                     all(f.lower() in answer.lower() for f in q["expected_facts"])
-                    if q.get("expected_facts") else None)
+                    if q.get("expected_facts")
+                    else None
+                )
             per_question.append(row)
 
         return _aggregate(corpus, k_values, per_question, generate, llm)
@@ -212,10 +228,9 @@ def evaluate(corpus: dict, *, llm, k_values=(1, 3, 8), generate: bool = True,
             db_mod.delete_notebook(notebook_id)
 
 
-def _aggregate(corpus: dict, k_values, per_question: list[dict],
-               generate: bool, llm) -> dict:
+def _aggregate(corpus: dict, k_values, per_question: list[dict], generate: bool, llm) -> dict:
     labelled = [r for r in per_question if any(v is not None for v in r["recall"].values())]
-    retrieval = {"questions": len(labelled)}
+    retrieval: dict[str, float | int | None] = {"questions": len(labelled)}
     for k in k_values:
         retrieval[f"recall@{k}"] = _mean([r["recall"][f"@{k}"] for r in labelled])
     retrieval["mrr"] = _mean([r["rr"] for r in labelled])
@@ -230,12 +245,11 @@ def _aggregate(corpus: dict, k_values, per_question: list[dict],
     if generate:
         report["generation"] = {
             "questions": len(per_question),
-            "citation_correctness": _mean(
-                [r["citation_correctness"] for r in per_question]),
-            "citation_completeness": _mean(
-                [r["citation_completeness"] for r in per_question]),
+            "citation_correctness": _mean([r["citation_correctness"] for r in per_question]),
+            "citation_completeness": _mean([r["citation_completeness"] for r in per_question]),
             "unsupported_claim_rate": _mean(
-                [1.0 if r["unsupported_claim"] else 0.0 for r in per_question]),
+                [1.0 if r["unsupported_claim"] else 0.0 for r in per_question]
+            ),
             "refusal_accuracy": _mean([r["refusal"] for r in per_question]),
             "fact_coverage": _mean([r["facts_covered"] for r in per_question]),
         }
@@ -253,6 +267,7 @@ def _backend_name(llm) -> str:
 
 
 # ---------- CLI ----------
+
 
 def _fmt(value) -> str:
     return "n/a" if value is None else f"{value:.3f}"
@@ -278,9 +293,11 @@ def _print_report(report: dict) -> None:
                 flags.append("UNSUPPORTED")
             if row.get("refusal") is False:
                 flags.append("NO-REFUSAL")
-            print(f"  {row['id']:<14} {row['category']:<24} "
-                  f"recall@3={_fmt(row['recall'].get('@3'))} "
-                  f"rr={_fmt(row.get('rr'))} {' '.join(flags)}")
+            print(
+                f"  {row['id']:<14} {row['category']:<24} "
+                f"recall@3={_fmt(row['recall'].get('@3'))} "
+                f"rr={_fmt(row.get('rr'))} {' '.join(flags)}"
+            )
 
 
 def main(argv=None) -> int:
@@ -290,22 +307,23 @@ def main(argv=None) -> int:
     import time
 
     root = Path(__file__).resolve().parent.parent
-    parser = argparse.ArgumentParser(
-        prog="python -m app.evaluation", description=__doc__)
+    parser = argparse.ArgumentParser(prog="python -m app.evaluation", description=__doc__)
     parser.add_argument("--corpus", default=str(root / "evals" / "corpus.json"))
     parser.add_argument("--k", default="1,3,8", help="comma-separated K values")
-    parser.add_argument("--no-generate", action="store_true",
-                        help="skip the LLM and report retrieval metrics only")
-    parser.add_argument("--data-dir", default=None,
-                        help="data dir for the throwaway eval index (default: temp)")
-    parser.add_argument("--json", dest="json_path", default=None,
-                        help="write the full report to this JSON path")
+    parser.add_argument(
+        "--no-generate", action="store_true", help="skip the LLM and report retrieval metrics only"
+    )
+    parser.add_argument(
+        "--data-dir", default=None, help="data dir for the throwaway eval index (default: temp)"
+    )
+    parser.add_argument(
+        "--json", dest="json_path", default=None, help="write the full report to this JSON path"
+    )
     args = parser.parse_args(argv)
 
     # Point the app at an isolated data dir BEFORE importing app modules, so the
     # benchmark never touches the real LanceDB/SQLite.
-    os.environ["NLM_DATA_DIR"] = args.data_dir or tempfile.mkdtemp(
-        prefix="skullmaster-eval-")
+    os.environ["NLM_DATA_DIR"] = args.data_dir or tempfile.mkdtemp(prefix="skullmaster-eval-")
     k_values = tuple(int(x) for x in args.k.split(",") if x.strip())
 
     from . import db, rag, store
@@ -316,16 +334,21 @@ def main(argv=None) -> int:
     llm = get_llm()
 
     started = time.time()
-    report = evaluate(corpus, llm=llm, k_values=k_values,
-                      generate=not args.no_generate, store_mod=store,
-                      db_mod=db, rag_mod=rag)
+    report = evaluate(
+        corpus,
+        llm=llm,
+        k_values=k_values,
+        generate=not args.no_generate,
+        store_mod=store,
+        db_mod=db,
+        rag_mod=rag,
+    )
     report["elapsed_seconds"] = round(time.time() - started, 1)
     report["corpus_path"] = str(args.corpus)
 
     _print_report(report)
     if args.json_path:
-        Path(args.json_path).write_text(
-            json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        Path(args.json_path).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         print(f"\nWrote {args.json_path}")
     return 0
 

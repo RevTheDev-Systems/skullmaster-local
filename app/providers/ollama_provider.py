@@ -1,4 +1,5 @@
 """Ollama LLM provider: chat + embeddings against OLLAMA_BASE_URL."""
+
 import logging
 import time
 from collections.abc import Iterator
@@ -38,10 +39,10 @@ class OllamaProvider:
         self.client = ollama.Client(host=OLLAMA_BASE_URL)
         self.chat_model = CHAT_MODEL
         self.embed_model = EMBED_MODEL
-        self._thinking: dict[str, bool] = {}   # model name -> supports thinking
+        self._thinking: dict[str, bool] = {}  # model name -> supports thinking
         self._meta_cache: dict[str, tuple[float, dict]] = {}
-        self.list_calls = 0        # list() HTTP calls (for latency measurement)
-        self.metadata_calls = 0    # show() HTTP calls (the N+1)
+        self.list_calls = 0  # list() HTTP calls (for latency measurement)
+        self.metadata_calls = 0  # show() HTTP calls (the N+1)
 
     # ---- chat ----
 
@@ -55,8 +56,7 @@ class OllamaProvider:
         # think=True makes Ollama route reasoning into a separate `thinking`
         # field so `content` stays clean; we never yield thinking tokens.
         kwargs = {"think": True} if think else {}
-        stream = self.client.chat(model=self.chat_model, messages=messages,
-                                  stream=True, **kwargs)
+        stream = self.client.chat(model=self.chat_model, messages=messages, stream=True, **kwargs)
         for part in stream:
             content = part.get("message", {}).get("content", "")
             if content:
@@ -124,8 +124,7 @@ class OllamaProvider:
             show = self.client.show(name)
             caps = list(getattr(show, "capabilities", None) or [])
             # ollama-python names this attribute `modelinfo`; accept both.
-            info = (getattr(show, "model_info", None)
-                    or getattr(show, "modelinfo", None) or {})
+            info = getattr(show, "model_info", None) or getattr(show, "modelinfo", None) or {}
             context_length = _context_length(info)
         except Exception:
             pass
@@ -143,15 +142,19 @@ class OllamaProvider:
             meta = self._metadata(m.model, refresh=refresh)
             caps = meta["capabilities"]
             details = getattr(m, "details", None)
-            models.append({
-                "name": m.model,
-                "size": m.size,
-                "parameter_size": getattr(details, "parameter_size", None) if details else None,
-                "quantization": getattr(details, "quantization_level", None) if details else None,
-                "capabilities": caps,
-                "context_length": meta["context_length"],
-                **capability_flags(caps),
-            })
+            models.append(
+                {
+                    "name": m.model,
+                    "size": m.size,
+                    "parameter_size": getattr(details, "parameter_size", None) if details else None,
+                    "quantization": getattr(details, "quantization_level", None)
+                    if details
+                    else None,
+                    "capabilities": caps,
+                    "context_length": meta["context_length"],
+                    **capability_flags(caps),
+                }
+            )
         return sorted(models, key=lambda m: m["name"])
 
     def set_chat_model(self, name: str):
@@ -185,8 +188,10 @@ class OllamaProvider:
             reachable = True
         except Exception:
             installed, reachable = set(), False
+
         def present(m):
             return bool({m, f"{m}:latest"} & installed)
+
         chat_ready = present(self.chat_model)
         embed_ready = present(self.embed_model)
         if not reachable:

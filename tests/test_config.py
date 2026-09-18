@@ -1,4 +1,5 @@
 """Configuration parsing and classification (Phase 3)."""
+
 from app import config
 
 
@@ -14,10 +15,21 @@ def test_int_env_falls_back_and_validates(monkeypatch):
 
 
 def test_default_configuration_has_no_invalid_entries(monkeypatch):
-    for var in ("LLM_PROVIDER", "OLLAMA_BASE_URL", "CHAT_MODEL", "EMBED_MODEL",
-                "TTS_MODEL", "STT_MODEL", "MLX_ENABLED", "MLX_BASE_URL",
-                "MLX_REQUEST_TIMEOUT", "HOST", "PORT",
-                "MAX_UPLOAD_MB", "MEDIA_MAX_UPLOAD_MB"):
+    for var in (
+        "LLM_PROVIDER",
+        "OLLAMA_BASE_URL",
+        "CHAT_MODEL",
+        "EMBED_MODEL",
+        "TTS_MODEL",
+        "STT_MODEL",
+        "MLX_ENABLED",
+        "MLX_BASE_URL",
+        "MLX_REQUEST_TIMEOUT",
+        "HOST",
+        "PORT",
+        "MAX_UPLOAD_MB",
+        "MEDIA_MAX_UPLOAD_MB",
+    ):
         monkeypatch.delenv(var, raising=False)
     report = config.config_report()
     names = {r["name"] for r in report}
@@ -49,8 +61,7 @@ def test_entrypoint_binds_configured_host_and_port(monkeypatch):
     import app.__main__ as entry
 
     captured = {}
-    monkeypatch.setattr(entry.uvicorn, "run",
-                        lambda app, **kw: captured.update(kw))
+    monkeypatch.setattr(entry.uvicorn, "run", lambda app, **kw: captured.update(kw))
     entry.main()
     assert captured["host"] == entry.HOST
     assert captured["port"] == entry.PORT

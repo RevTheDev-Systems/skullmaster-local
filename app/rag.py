@@ -1,4 +1,5 @@
 """Grounded chat: hybrid retrieval → strict source-only prompt → streamed answer with [n] citations."""
+
 import re
 from collections.abc import Iterator
 
@@ -26,7 +27,7 @@ def _location(c: dict) -> str:
 def _format_excerpts(chunks: list[dict]) -> str:
     parts = []
     for i, c in enumerate(chunks, start=1):
-        parts.append(f"[{i}] — from \"{c['source_name']}\"{_location(c)}:\n{c['text']}")
+        parts.append(f'[{i}] — from "{c["source_name"]}"{_location(c)}:\n{c["text"]}')
     return "\n\n---\n\n".join(parts)
 
 
@@ -40,9 +41,11 @@ def strip_think(text: str) -> str:
 
 def strip_invalid_citations(text: str, n_chunks: int) -> str:
     """Remove citation markers that don't map to a provided excerpt."""
+
     def repl(m: re.Match) -> str:
         num = int(m.group(1))
         return m.group(0) if 1 <= num <= n_chunks else ""
+
     return re.sub(r"\[(\d+)\]", repl, strip_think(text))
 
 
@@ -64,15 +67,12 @@ def answer_stream(
         c["kind"] = kinds.get(c["source_id"], "text")
 
     messages = [{"role": "system", "content": load_prompt("grounded_answer")}]
-    for turn in (history or [])[-CONTEXT_HISTORY_TURNS * 2:]:
+    for turn in (history or [])[-CONTEXT_HISTORY_TURNS * 2 :]:
         if turn.get("role") in ("user", "assistant") and turn.get("content"):
             messages.append({"role": turn["role"], "content": turn["content"]})
 
     if chunks:
-        user_msg = (
-            f"Source excerpts:\n\n{_format_excerpts(chunks)}\n\n"
-            f"Question: {question}"
-        )
+        user_msg = f"Source excerpts:\n\n{_format_excerpts(chunks)}\n\nQuestion: {question}"
     else:
         user_msg = (
             "No relevant source excerpts were found for this question.\n\n"
