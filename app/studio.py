@@ -201,7 +201,64 @@ ARTIFACT_PROMPTS = {
     "infographic": "infographic_spec",
     "spreadsheet": "spreadsheet_spec",
     "mindgraph": "mindgraph_spec",
+    # Grounded text artifacts (local NotebookLM-style documents).
+    "briefing": "briefing_spec",
+    "study_guide": "study_guide_spec",
+    "faq": "faq_spec",
+    "timeline": "timeline_spec",
+    "source_summary": "source_summary_spec",
 }
+
+TEXT_ARTIFACT_KINDS = ("briefing", "study_guide", "faq", "timeline", "source_summary")
+
+
+def _clean_str(value, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ModelOutputError(f"{field} must be a non-empty string")
+    return value.strip()
+
+
+def _clean_str_list(value, field: str, minimum: int, maximum: int) -> list[str]:
+    if not isinstance(value, list) or not minimum <= len(value) <= maximum:
+        raise ModelOutputError(f"{field} must be a list of {minimum}-{maximum} items")
+    return [_clean_str(v, field) for v in value]
+
+
+def _clean_pairs(value, field: str, keys: tuple[str, ...],
+                 minimum: int, maximum: int) -> list[dict]:
+    if not isinstance(value, list) or not minimum <= len(value) <= maximum:
+        raise ModelOutputError(f"{field} must be a list of {minimum}-{maximum} items")
+    out = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ModelOutputError(f"each {field} item must be an object")
+        out.append({k: _clean_str(item.get(k), f"{field}.{k}") for k in keys})
+    return out
+
+
+def _validate_text_artifact(kind: str, spec: dict) -> dict:
+    """Shape-check a grounded text artifact (all strings non-empty)."""
+    if kind == "briefing":
+        spec["sections"] = _clean_pairs(spec.get("sections"), "sections",
+                                        ("heading", "body"), 1, 12)
+    elif kind == "study_guide":
+        spec["objectives"] = _clean_str_list(spec.get("objectives"), "objectives", 1, 12)
+        spec["key_concepts"] = _clean_pairs(spec.get("key_concepts"), "key_concepts",
+                                            ("term", "definition"), 1, 20)
+        spec["questions"] = _clean_pairs(spec.get("questions"), "questions",
+                                         ("q", "a"), 1, 20)
+    elif kind == "faq":
+        spec["items"] = _clean_pairs(spec.get("items"), "items",
+                                     ("question", "answer"), 1, 30)
+    elif kind == "timeline":
+        spec["events"] = _clean_pairs(spec.get("events"), "events",
+                                      ("date", "event"), 1, 40)
+    elif kind == "source_summary":
+        spec["summary"] = _clean_str(spec.get("summary"), "summary")
+        spec["key_points"] = _clean_str_list(spec.get("key_points"), "key_points", 1, 12)
+    else:
+        raise StudioError(f"Unknown text artifact kind: {kind}")
+    return spec
 
 
 def _validate_artifact_spec(kind: str, spec: dict) -> dict:
@@ -291,6 +348,9 @@ def _validate_artifact_spec(kind: str, spec: dict) -> dict:
                 raise ModelOutputError("each row must be a list")
         width = len(cols)
         spec["rows"] = [(list(r) + [""] * width)[:width] for r in rows]
+
+    elif kind in TEXT_ARTIFACT_KINDS:
+        _validate_text_artifact(kind, spec)
 
     else:
         raise StudioError(f"Unknown artifact kind: {kind}")

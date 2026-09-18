@@ -79,6 +79,26 @@ class MockLLM:
                                "columns": ["Name", "Value"],
                                "rows": [["a", 1], ["b", 2]],
                                "source_note": "mock sources"})
+        if "briefing document" in system:
+            return json.dumps({"title": "Mock Briefing",
+                               "sections": [{"heading": "H", "body": "Body."}],
+                               "source_note": "mock sources"})
+        if "study guide" in system:
+            return json.dumps({"title": "Mock Study Guide", "objectives": ["o"],
+                               "key_concepts": [{"term": "t", "definition": "d"}],
+                               "questions": [{"q": "q", "a": "a"}],
+                               "source_note": "mock sources"})
+        if "FAQ" in system:
+            return json.dumps({"title": "Mock FAQ",
+                               "items": [{"question": "q", "answer": "a"}],
+                               "source_note": "mock sources"})
+        if "timeline" in system:
+            return json.dumps({"title": "Mock Timeline",
+                               "events": [{"date": "Q1", "event": "e"}],
+                               "source_note": "mock sources"})
+        if "You summarize" in system:
+            return json.dumps({"title": "Mock Summary", "summary": "s",
+                               "key_points": ["p"], "source_note": "mock sources"})
         assert "podcast" in system.lower() or "host" in system.lower()
         lines = [{"speaker": "A" if i % 2 == 0 else "B",
                   "text": f"Line {i} about the sources."} for i in range(6)]

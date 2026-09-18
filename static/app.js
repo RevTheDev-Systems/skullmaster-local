@@ -717,11 +717,21 @@ $("#audio-overview-btn").addEventListener("click", async () => {
 const SVGNS = "http://www.w3.org/2000/svg";
 const PALETTE = ["#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
                  "#14b8a6", "#f43f5e", "#84cc16", "#6366f1", "#eab308", "#06b6d4"];
-const ART_ICONS = { chart: "📊", infographic: "🪧", spreadsheet: "📋", mindgraph: "🧠" };
+const ART_ICONS = {
+  chart: "📊", infographic: "🪧", spreadsheet: "📋", mindgraph: "🧠",
+  briefing: "📄", study_guide: "🎓", faq: "❓", timeline: "🕒", source_summary: "📝",
+};
 const SVG_RENDERERS = {
   chart: renderChart,
   infographic: renderInfographic,
   mindgraph: renderMindGraph,
+};
+const TEXT_RENDERERS = {
+  briefing: renderBriefing,
+  study_guide: renderStudyGuide,
+  faq: renderFaq,
+  timeline: renderTimeline,
+  source_summary: renderSourceSummary,
 };
 
 function svgEl(tag, attrs = {}, parent = null) {
@@ -1053,6 +1063,120 @@ function renderMindGraph(spec) {
   return svg;
 }
 
+// ---- grounded text artifacts (briefing / study guide / FAQ / timeline / summary) ----
+
+function artDoc() {
+  const root = document.createElement("div");
+  root.className = "art-doc";
+  return root;
+}
+
+function artHeading(root, text, tag = "h3") {
+  const h = document.createElement(tag);
+  h.textContent = text;
+  root.appendChild(h);
+  return h;
+}
+
+function artPara(root, text) {
+  const p = document.createElement("p");
+  p.textContent = text;
+  root.appendChild(p);
+  return p;
+}
+
+function artList(root, items) {
+  const ul = document.createElement("ul");
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    ul.appendChild(li);
+  }
+  root.appendChild(ul);
+  return ul;
+}
+
+function renderBriefing(spec) {
+  const root = artDoc();
+  for (const s of spec.sections) { artHeading(root, s.heading); artPara(root, s.body); }
+  return root;
+}
+
+function renderStudyGuide(spec) {
+  const root = artDoc();
+  artHeading(root, "Objectives");
+  artList(root, spec.objectives);
+  artHeading(root, "Key concepts");
+  const dl = document.createElement("dl");
+  for (const k of spec.key_concepts) {
+    const dt = document.createElement("dt"); dt.textContent = k.term;
+    const dd = document.createElement("dd"); dd.textContent = k.definition;
+    dl.append(dt, dd);
+  }
+  root.appendChild(dl);
+  artHeading(root, "Practice questions");
+  for (const q of spec.questions) {
+    artHeading(root, q.q, "h4");
+    artPara(root, q.a);
+  }
+  return root;
+}
+
+function renderFaq(spec) {
+  const root = artDoc();
+  for (const it of spec.items) { artHeading(root, it.question, "h4"); artPara(root, it.answer); }
+  return root;
+}
+
+function renderTimeline(spec) {
+  const root = artDoc();
+  const ul = document.createElement("ul");
+  ul.className = "art-timeline";
+  for (const ev of spec.events) {
+    const li = document.createElement("li");
+    const when = document.createElement("span");
+    when.className = "art-time";
+    when.textContent = ev.date;
+    const what = document.createElement("span");
+    what.textContent = ev.event;
+    li.append(when, what);
+    ul.appendChild(li);
+  }
+  root.appendChild(ul);
+  return root;
+}
+
+function renderSourceSummary(spec) {
+  const root = artDoc();
+  artPara(root, spec.summary);
+  artHeading(root, "Key points");
+  artList(root, spec.key_points);
+  return root;
+}
+
+function artifactToMarkdown(kind, spec) {
+  const lines = [`# ${spec.title}`, ""];
+  if (kind === "briefing") {
+    for (const s of spec.sections) lines.push(`## ${s.heading}`, "", s.body, "");
+  } else if (kind === "study_guide") {
+    lines.push("## Objectives", "");
+    spec.objectives.forEach((o) => lines.push(`- ${o}`));
+    lines.push("", "## Key concepts", "");
+    spec.key_concepts.forEach((k) => lines.push(`**${k.term}** — ${k.definition}`));
+    lines.push("", "## Practice questions", "");
+    spec.questions.forEach((q) => lines.push(`**${q.q}**`, "", q.a, ""));
+  } else if (kind === "faq") {
+    spec.items.forEach((it) => lines.push(`**${it.question}**`, "", it.answer, ""));
+  } else if (kind === "timeline") {
+    spec.events.forEach((ev) => lines.push(`- **${ev.date}** — ${ev.event}`));
+  } else if (kind === "source_summary") {
+    lines.push(spec.summary, "", "## Key points", "");
+    spec.key_points.forEach((p) => lines.push(`- ${p}`));
+  }
+  if (spec.source_note) lines.push("", `_Source: ${spec.source_note}_`);
+  return lines.join("\n");
+}
+
 function downloadBlob(content, filename, type) {
   const url = URL.createObjectURL(new Blob([content], { type }));
   const a = document.createElement("a");
@@ -1116,6 +1240,15 @@ function showArtifact(a) {
       x.setAttribute("aria-label", "Download as Excel file");
       actions.appendChild(x);
     }
+  } else if (TEXT_RENDERERS[a.kind]) {
+    body.appendChild(TEXT_RENDERERS[a.kind](a.spec));
+    const md = document.createElement("button");
+    md.type = "button";
+    md.textContent = "⬇ Markdown";
+    md.setAttribute("aria-label", "Download as Markdown");
+    md.addEventListener("click", () => downloadBlob(
+      artifactToMarkdown(a.kind, a.spec), `${slug(a.title)}.md`, "text/markdown"));
+    actions.appendChild(md);
   }
 
   // the infographic SVG already prints its own source line
@@ -1171,6 +1304,8 @@ function updateStudioEmpty() {
 const KIND_LABELS = {
   chart: "Chart", infographic: "Infographic",
   spreadsheet: "Spreadsheet", mindgraph: "Mind Graph",
+  briefing: "Briefing", study_guide: "Study Guide", faq: "FAQ",
+  timeline: "Timeline", source_summary: "Source Summary",
 };
 for (const btn of document.querySelectorAll(".artifact-buttons button")) {
   btn.addEventListener("click", async () => {

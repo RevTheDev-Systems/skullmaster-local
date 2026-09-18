@@ -96,6 +96,11 @@ def _seed(client, nb_id):
     ("infographic", "Mock Infographic"),
     ("spreadsheet", "Mock Table"),
     ("mindgraph", "Mock Mind Graph"),
+    ("briefing", "Mock Briefing"),
+    ("study_guide", "Mock Study Guide"),
+    ("faq", "Mock FAQ"),
+    ("timeline", "Mock Timeline"),
+    ("source_summary", "Mock Summary"),
 ])
 def test_artifact_generation(client, notebook, kind, title):
     _seed(client, notebook["id"])
@@ -384,3 +389,46 @@ def test_studio_generators_pass_explicit_context_budgets(monkeypatch):
     monkeypatch.setattr(studio, "get_llm", lambda: chart_llm)
     studio.generate_artifact_spec("nb", "chart")
     assert seen[-1] == ARTIFACT_CONTEXT_CHARS
+
+
+# ---------- Phase 8: grounded text artifacts ----------
+
+TEXT_SPECS = {
+    "briefing": {"title": "Brief", "sections": [{"heading": "H", "body": "Body."}]},
+    "study_guide": {"title": "Study", "objectives": ["o"],
+                    "key_concepts": [{"term": "t", "definition": "d"}],
+                    "questions": [{"q": "q", "a": "a"}]},
+    "faq": {"title": "FAQ", "items": [{"question": "q", "answer": "a"}]},
+    "timeline": {"title": "Time", "events": [{"date": "Q1", "event": "e"}]},
+    "source_summary": {"title": "Summary", "summary": "s", "key_points": ["p"]},
+}
+
+
+def test_all_text_artifact_kinds_are_registered():
+    for kind in studio.TEXT_ARTIFACT_KINDS:
+        assert kind in studio.ARTIFACT_PROMPTS
+
+
+@pytest.mark.parametrize("kind,spec", TEXT_SPECS.items())
+def test_text_artifact_generation(monkeypatch, kind, spec):
+    llm = _artifact_llm([json.dumps(spec)])
+    monkeypatch.setattr(studio, "_gather_context", lambda nb, budget: "ctx")
+    monkeypatch.setattr(studio, "get_llm", lambda: llm)
+    out = studio.generate_artifact_spec("nb", kind)
+    assert out["title"] == spec["title"]
+    assert llm.calls == 1
+
+
+@pytest.mark.parametrize("kind,bad", [
+    ("briefing", {"title": "B", "sections": []}),
+    ("briefing", {"title": "B", "sections": [{"heading": "H"}]}),
+    ("study_guide", {"title": "S", "objectives": [],
+                     "key_concepts": [{"term": "t", "definition": "d"}],
+                     "questions": [{"q": "q", "a": "a"}]}),
+    ("faq", {"title": "F", "items": [{"question": "q"}]}),
+    ("timeline", {"title": "T", "events": ["not an object"]}),
+    ("source_summary", {"title": "Sum", "summary": "  ", "key_points": ["p"]}),
+])
+def test_text_artifact_validation_rejects_bad_shapes(kind, bad):
+    with pytest.raises(studio.ModelOutputError):
+        studio._validate_artifact_spec(kind, bad)

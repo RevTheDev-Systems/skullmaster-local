@@ -367,6 +367,19 @@ button:focus-visible, .btn:focus-visible, select:focus-visible, input:focus-visi
   .panel[data-panel][data-active="true"] { display: flex; min-height: calc(100vh - 250px); }
 }
 
+/* Grounded text artifacts (briefing / study guide / FAQ / timeline / summary) */
+.art-doc { max-width: 720px; margin: 0 auto; line-height: 1.6; text-align: left; }
+.art-doc h3 { margin: 18px 0 6px; font-size: 15px; }
+.art-doc h4 { margin: 14px 0 4px; font-size: 13.5px; }
+.art-doc p { margin: 4px 0 10px; }
+.art-doc ul { margin: 4px 0 12px; padding-left: 20px; }
+.art-doc li { margin: 3px 0; }
+.art-doc dt { font-weight: 700; margin-top: 8px; }
+.art-doc dd { margin: 0 0 4px 0; }
+.art-timeline { list-style: none; padding-left: 0; }
+.art-timeline li { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+.art-timeline .art-time { min-width: 92px; font-weight: 700; color: var(--accent); }
+
 @media (max-width: 720px) {
   .app-shell { padding: 14px 14px 96px; }
   .topbar, .panel { border-radius: 22px; }
