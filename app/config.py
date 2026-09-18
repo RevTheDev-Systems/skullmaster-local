@@ -106,6 +106,20 @@ MEDIA_MAX_UPLOAD_BYTES = _int_env("MEDIA_MAX_UPLOAD_MB", 1024) * 1024 * 1024
 URL_FETCH_TIMEOUT = 20  # seconds
 URL_MAX_BYTES = 10 * 1024 * 1024
 
+# ---- OCR (optional; only for PDFs whose text layer is insufficient) ----
+# `auto` uses OCR only when an engine is installed; `true` forces an attempt;
+# `false` disables it. OCR is never applied to PDFs that already have text.
+OCR_MODE = os.environ.get("OCR_ENABLED", "auto").strip().lower()
+OCR_LANG = os.environ.get("OCR_LANG", "eng").strip() or "eng"
+OCR_MIN_CHARS_PER_PAGE = _int_env("OCR_MIN_CHARS_PER_PAGE", 40, minimum=0)
+OCR_DPI = _int_env("OCR_DPI", 200, minimum=72)
+_OCR_FALSY = ("0", "false", "no", "off")
+
+
+def ocr_configured() -> bool:
+    return OCR_MODE not in _OCR_FALSY
+
+
 # ---- Studio artifacts ----
 ARTIFACT_CONTEXT_CHARS = 24_000  # max source characters fed to artifact generation
 
@@ -225,4 +239,14 @@ def config_report() -> list[dict]:
         else "optional",
         str(MEDIA_MAX_UPLOAD_BYTES // (1024 * 1024)),
     )
+
+    # OCR (optional)
+    add("OCR_ENABLED", "optional", OCR_MODE)
+    add("OCR_LANG", "optional" if OCR_LANG else "invalid", OCR_LANG or "(empty)")
+    add(
+        "OCR_MIN_CHARS_PER_PAGE",
+        "invalid" if _invalid_int("OCR_MIN_CHARS_PER_PAGE", 0) else "optional",
+        str(OCR_MIN_CHARS_PER_PAGE),
+    )
+    add("OCR_DPI", "invalid" if _invalid_int("OCR_DPI", 72) else "optional", str(OCR_DPI))
     return report

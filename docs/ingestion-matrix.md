@@ -32,10 +32,19 @@ drift. Every row has both a positive and a negative fixture.
 - **Media.** Transcript segments carry the start second in the page slot so
   citations can seek playback.
 
-## Out of scope: OCR
+## Optional: OCR for scanned PDFs
 
-OCR is a **future capability, not a bug fix**, and is never applied by default.
-A PDF with no extractable text layer (e.g. a scan) is rejected with a clear
-"is it scanned images?" message rather than silently OCR'd. When introduced it
-will run only for PDFs whose text layer is insufficient, feeding normalized
-blocks into the existing chunk/retrieval pipeline.
+OCR is an **off-by-default capability**, not a general PDF path:
+
+- It runs only for **individual pages with no text layer**, and only when a PDF's
+  average extractable text is below `OCR_MIN_CHARS_PER_PAGE` (default 40). Text
+  pages are never re-OCR'd.
+- It requires an engine: Tesseract via `pytesseract` (+ Pillow). Install with
+  `brew install tesseract` and `uv pip install pytesseract pillow`. Without an
+  engine, scanned PDFs are still rejected with a clear "is it scanned images?"
+  message, exactly as before.
+- Controls: `OCR_ENABLED=auto|true|false`, `OCR_LANG`, `OCR_MIN_CHARS_PER_PAGE`,
+  `OCR_DPI`. `python -m app.diagnostics` reports OCR availability (WARN when no
+  engine is installed).
+- OCR text is normalized into pages and fed through the existing chunk/retrieval
+  pipeline, so citations keep their page numbers.

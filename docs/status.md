@@ -28,8 +28,11 @@ See `README.md` for usage and the architecture overview.
   loopback-first bind, timezone-aware expiry.
 - **Persistence** — SQLite + LanceDB + files; deletion cleans up; data survives
   restart.
+- **OCR (optional)** — scanned PDF pages are OCR'd only when a PDF's text layer
+  is insufficient and a Tesseract engine is installed; never applied to text
+  PDFs or by default. See `docs/ingestion-matrix.md`.
 - **Diagnostics** — `python -m app.diagnostics` (config classification, storage,
-  SQLite, providers, TTS/STT).
+  SQLite, providers, TTS/STT, OCR).
 - **Backup/restore** — `python -m app.backup create|restore`: a coherent,
   checksummed snapshot of the data directory with path relocation and
   path-traversal protection; round trip proven in `tests/test_backup.py`.
@@ -41,18 +44,17 @@ See `README.md` for usage and the architecture overview.
 - **MLX capability inference** — reasoning support for MLX models is inferred
   from naming hints because `/v1/models` exposes no capabilities; treat
   `can_reason` for MLX as a heuristic.
-- **Retrieval tuning** — chunk sizes, fusion weighting, and the multi-document
-  Recall@3 gap are deliberately un-tuned until the benchmark justifies changes.
+- **Retrieval tuning** — fusion weighting is tuned (BM25 1.5 lifted recall@3 to
+  1.0); chunk sizing and reranking remain un-tuned until the benchmark justifies
+  changes.
 
 ## Planned
 
 See `docs/roadmap.md` for the full post-v1 plan. Highlights:
 
-- **OCR** for scanned documents, applied only when a PDF's text layer is
-  insufficient (never by default).
-- **Richer knowledge graph** and **cross-notebook research** on top of the
-  current evidence-bound nodes.
-- **Retrieval tuning** driven by the committed RAG benchmark.
+- **Richer knowledge graph** on top of the current evidence-bound nodes.
+- **Semantic notebook search** and an expanded capability router.
+- Further **retrieval tuning** driven by the committed RAG benchmark.
 
 ## Out of scope
 

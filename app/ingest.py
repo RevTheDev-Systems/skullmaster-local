@@ -16,7 +16,15 @@ import fitz  # PyMuPDF
 import trafilatura
 from docx import Document as DocxDocument
 
-from .config import CHUNK_CHARS, URL_FETCH_TIMEOUT, URL_MAX_BYTES
+from . import ocr as _ocr
+from .config import (
+    CHUNK_CHARS,
+    OCR_DPI,
+    OCR_LANG,
+    OCR_MIN_CHARS_PER_PAGE,
+    URL_FETCH_TIMEOUT,
+    URL_MAX_BYTES,
+)
 from .providers import get_stt
 
 TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".rst", ".csv", ".tsv", ".json"}
@@ -140,14 +148,50 @@ def _html_to_text(raw: str) -> str:
     return text.strip()
 
 
+def ocr_configured() -> bool:
+    from .config import ocr_configured as _configured
+
+    return _configured()
+
+
+def ocr_available() -> bool:
+    return _ocr.available()
+
+
+def ocr_image(png: bytes, lang: str = OCR_LANG) -> str:
+    return _ocr.ocr_image(png, lang)
+
+
+def _ocr_pages(doc, pages: list[tuple[int, str]]) -> list[tuple[int, str]]:
+    """OCR only the pages with no text layer; text pages are left untouched."""
+    out: list[tuple[int, str]] = []
+    for index, text in pages:
+        if text:
+            out.append((index, text))
+            continue
+        try:
+            pixmap = doc[index - 1].get_pixmap(dpi=OCR_DPI)
+            out.append((index, ocr_image(pixmap.tobytes("png"), OCR_LANG).strip()))
+        except Exception:
+            out.append((index, ""))  # one bad page shouldn't fail the whole document
+    return out
+
+
 def parse_pdf(path: Path) -> list[tuple[int | None, str]]:
     segments: list[tuple[int | None, str]] = []
     try:
         with fitz.open(path) as doc:
-            for i, page in enumerate(doc, start=1):
-                text = page.get_text("text").strip()
-                if text:
-                    segments.append((i, text))
+            pages = [(i, page.get_text("text").strip()) for i, page in enumerate(doc, start=1)]
+            total = sum(len(text) for _, text in pages)
+            # OCR only when the text layer is insufficient and an engine exists.
+            if (
+                pages
+                and ocr_configured()
+                and ocr_available()
+                and total < OCR_MIN_CHARS_PER_PAGE * len(pages)
+            ):
+                pages = _ocr_pages(doc, pages)
+            segments = [(i, text) for i, text in pages if text]
     except IngestError:
         raise
     except Exception as e:

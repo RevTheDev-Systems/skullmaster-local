@@ -8,6 +8,7 @@ via [Ollama](https://ollama.com). No cloud APIs, no telemetry, no tracking.
 
 - **Notebooks & sources** — upload PDF, DOCX, TXT/MD, XLSX, video, or audio files, or add URLs; multiple sources per notebook
 - **Video & audio sources** — uploads are transcribed locally with Whisper, playable in-app, and fully searchable in chat; media citations carry timestamps and a "Play from" button that seeks the player to the cited moment
+- **Scanned PDFs (optional OCR)** — if a PDF has no text layer and Tesseract is installed, its pages are OCR'd into the normal pipeline; text PDFs are never OCR'd, and without an engine the app behaves as before
 - **Closed-world RAG chat** — answers come ONLY from your sources; off-corpus questions are declined instead of hallucinated
 - **Cross-notebook research** — flip on **All notebooks** in the chat bar to answer across your whole library; retrieval is merged with a diversity pass so one notebook can't dominate, and citations name the notebook they came from (research answers are transient, not saved to a notebook)
 - **Inline citations** — every claim carries a clickable `[n]` chip that opens the exact source passage (with page numbers for PDFs, timestamps for media)
@@ -125,6 +126,7 @@ invalidates every stored vector, so it shouldn't be a one-click action.
 | `LLM_PROVIDER` | Backend implementation | `ollama` (Ollama + auto-detected MLX; further OpenAI-compatible backends drop into `app/providers/`) |
 | `MAX_UPLOAD_MB` / `MEDIA_MAX_UPLOAD_MB` | Upload caps | documents 50MB / media 1GB by default |
 | `HOST` / `PORT` | Bind address used by `python -m app` and the launcher | `127.0.0.1` / `8501` |
+| `OCR_ENABLED` / `OCR_LANG` / `OCR_MIN_CHARS_PER_PAGE` / `OCR_DPI` | Optional OCR for text-less PDF pages | `auto` / `eng` / `40` / `200` |
 
 **Note:** if you change `EMBED_MODEL`, re-ingest your sources — embeddings from
 different models are not comparable.
@@ -241,6 +243,7 @@ app/
   ingest.py        PDF (PyMuPDF), DOCX (python-docx), XLSX (openpyxl), HTML
                    (trafilatura + fallback), text, video/audio (Whisper),
                    hardened URL fetch; failures normalized to IngestError
+  ocr.py           optional Tesseract OCR for text-less PDF pages (never default)
   chunker.py       paragraph-packing chunker (~800 tok, overlap), page metadata
   store.py         LanceDB vector store + BM25, reciprocal-rank-fusion hybrid search
   rag.py           retrieval → grounded prompt → streamed cited answer; research
@@ -302,7 +305,9 @@ rank fusion.
 
 - Answer quality and decline discipline depend on the configured `CHAT_MODEL`;
   very small models cite less reliably.
-- Scanned (image-only) PDFs are rejected — there is no OCR.
+- Scanned (image-only) PDFs are OCR'd only if an engine is installed
+  (`brew install tesseract`, `uv pip install pytesseract pillow`); otherwise
+  they're rejected with a clear message. OCR is never applied to text PDFs.
 - URL extraction targets article-like pages; heavily scripted pages may yield nothing.
 - Audio Overview generation is synchronous and takes a few minutes; the UI stays
   responsive but the result appears only when finished. Video transcription is

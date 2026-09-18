@@ -14,7 +14,7 @@ import socket
 import sys
 import tempfile
 
-from . import db, store
+from . import db, ocr, store
 from .config import (
     APP_VERSION,
     AUDIO_DIR,
@@ -226,6 +226,18 @@ def main() -> int:
             stt.get("ready", False),
             stt.get("detail", ""),
             "set STT_MODEL=whisper-<tiny|base|small|medium|large-v3> in .env",
+        )
+
+    print("\nOCR (optional, scanned PDFs)")
+    engine = ocr.engine_name()
+    if engine:
+        check(f"ocr ({engine})", True, "available — used only for text-less PDF pages")
+    else:
+        warn(
+            "ocr",
+            "no OCR engine installed",
+            "brew install tesseract && uv pip install pytesseract pillow "
+            "(or set OCR_ENABLED=false to silence this)",
         )
 
     print("\nServer")

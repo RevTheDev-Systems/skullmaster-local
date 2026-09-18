@@ -17,8 +17,8 @@ subsystems plus the model fabric:
 
 ## Near term (build on existing modules)
 
-- **OCR** (`app/ingest.py`) — for PDFs whose text layer is insufficient; feeds
-  the existing chunk/retrieval pipeline, never applied by default.
+- **OCR** — ✅ delivered: `app/ocr.py` + `parse_pdf` OCR text-less pages only when
+  the text layer is insufficient and Tesseract is installed; never by default.
 - **Retrieval tuning** — act on the Phase 5 benchmark's multi-document Recall@3
   gap: chunk sizing, fusion weighting, and local reranking, measured against
   `evals/`.

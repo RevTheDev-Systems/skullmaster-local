@@ -150,6 +150,56 @@ def test_image_only_pdf_requires_ocr(tmp_path):
         ingest.parse_pdf(_blank_pdf(tmp_path / "scan.pdf"))
 
 
+# ---------- OCR (optional engine, mocked) ----------
+
+
+def test_scanned_pdf_is_ocrd_when_engine_available(tmp_path, monkeypatch):
+    called = []
+    monkeypatch.setattr(ingest, "ocr_configured", lambda: True)
+    monkeypatch.setattr(ingest, "ocr_available", lambda: True)
+    monkeypatch.setattr(
+        ingest, "ocr_image", lambda png, lang: called.append(lang) or "Recovered scan text."
+    )
+    segments = ingest.parse_pdf(_blank_pdf(tmp_path / "scan.pdf"))
+    assert called
+    assert "Recovered scan text." in segments[0][1]
+
+
+def test_text_pdf_is_never_ocrd(tmp_path, monkeypatch):
+    called = []
+    monkeypatch.setattr(ingest, "ocr_available", lambda: True)
+    monkeypatch.setattr(ingest, "ocr_image", lambda png, lang: called.append(1) or "should not run")
+    ingest.parse_pdf(_pdf(tmp_path / "text.pdf"))
+    assert called == []
+
+
+def test_ocr_runs_only_on_empty_pages(tmp_path, monkeypatch):
+    called = []
+    monkeypatch.setattr(ingest, "ocr_configured", lambda: True)
+    monkeypatch.setattr(ingest, "ocr_available", lambda: True)
+    monkeypatch.setattr(
+        ingest, "ocr_image", lambda png, lang: called.append(1) or "page two recovered"
+    )
+
+    path = tmp_path / "mixed.pdf"
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "Page one has real text.")
+    doc.new_page()  # blank page (no text layer)
+    doc.save(str(path))
+    doc.close()
+
+    segments = ingest.parse_pdf(path)
+    assert len(called) == 1
+    text = "\n".join(t for _, t in segments)
+    assert "Page one has real text." in text and "page two recovered" in text
+
+
+def test_scanned_pdf_rejected_when_ocr_disabled(tmp_path, monkeypatch):
+    monkeypatch.setattr(ingest, "ocr_configured", lambda: False)
+    with pytest.raises(ingest.IngestError, match="scanned"):
+        ingest.parse_pdf(_blank_pdf(tmp_path / "scan.pdf"))
+
+
 def test_empty_spreadsheet_raises(tmp_path):
     wb = Workbook()
     path = tmp_path / "empty.xlsx"
