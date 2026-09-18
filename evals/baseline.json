@@ -327,5 +327,5 @@
     }
   ],
   "elapsed_seconds": 56.6,
-  "corpus_path": "/Users/revenueroy/notebooklm-local/evals/corpus.json"
+  "corpus_path": "evals/corpus.json"
 }

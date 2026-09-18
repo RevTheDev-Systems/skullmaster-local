@@ -1,7 +1,8 @@
 # Historical-copy reconciliation
 
-Fingerprinted 2026-09-18 against the canonical checkout (`~/notebooklm-local`,
-110 source files, excluding `.git`, `.venv`, `data`, `models`, caches). Method:
+Fingerprinted 2026-09-18 against the then-canonical checkout
+(`~/notebooklm-local`, since migrated to `~/skullmaster-iq`; 110 source files,
+excluding `.git`, `.venv`, `data`, `models`, caches). Method:
 SHA-256 per file; a manifest hash over sorted `path:hash` pairs. **Nothing was
 deleted** — this report is the verification step that must precede any cleanup.
 

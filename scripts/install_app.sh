@@ -33,8 +33,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 
 # Bake in THIS repo's absolute path (resolved from the script location) rather
-# than a hardcoded ~/notebooklm-local, so the .app keeps working after the repo
-# is moved or renamed — just re-run this installer to update the pointer.
+# than a hardcoded checkout path, so the .app keeps working after the repo is
+# moved or renamed — just re-run this installer to update the pointer.
 cat > "$APP/Contents/MacOS/SkullMaster iQ" <<LAUNCH
 #!/bin/zsh
 exec "$REPO/scripts/launcher.sh"

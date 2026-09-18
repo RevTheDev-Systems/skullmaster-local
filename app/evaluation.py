@@ -447,7 +447,12 @@ def main(argv=None) -> int:
         rag_mod=rag,
     )
     report["elapsed_seconds"] = round(time.time() - started, 1)
-    report["corpus_path"] = str(args.corpus)
+    # Record a repo-relative path when possible so the committed baseline never
+    # pins itself to one machine's checkout location.
+    try:
+        report["corpus_path"] = str(Path(args.corpus).resolve().relative_to(root))
+    except ValueError:
+        report["corpus_path"] = str(args.corpus)
 
     _print_report(report)
     if args.json_path:

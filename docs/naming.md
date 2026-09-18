@@ -1,50 +1,54 @@
 # Naming and repository identity
 
 SkullMaster iQ grew out of an earlier "notebooklm-local" prototype, so identities
-differ across layers. This document defines the canonical identity and the
-explicit migration path. The **governing rule is to preserve the working
-system**, so nothing here is applied implicitly.
+differ across layers. The **governing rule is to preserve the working system**:
+only the local checkout location changed, and only as an explicit, verified
+migration. Package, module, and remote names are intentionally unchanged.
 
-## Current vs. canonical
+## Identity
 
-| Layer | Current | Canonical target |
+| Layer | Value | Status |
 |---|---|---|
-| Product / brand | SkullMaster iQ | SkullMaster iQ |
-| Python distribution (`pyproject`) | `skullmaster-local` | `skullmaster-iq` |
-| Import package | `app` | `app` (unchanged) |
-| GitHub repo | `revenueroyllc-stack/skullmaster-local` | `skullmaster-iq` |
-| Local checkout | `~/notebooklm-local` | `~/skullmaster-iq` |
+| Product / brand | SkullMaster iQ | canonical |
+| Import package | `app` | unchanged |
+| Python distribution (`pyproject`) | `skullmaster-local` | intentionally unchanged (no module renames) |
+| GitHub repo | `revenueroyllc-stack/skullmaster-local` | intentionally unchanged |
+| Local checkout | `~/skullmaster-iq` | **migrated** (was `~/notebooklm-local`) |
 
-## Location independence (done)
+The GitHub repository is **not** renamed merely because the local directory
+moved; the remote and the local path are independent.
 
-The launcher and the macOS app no longer assume a fixed path:
+## Local checkout migration (completed 2026-09-18)
+
+| Step | Result |
+|---|---|
+| Old path | `~/notebooklm-local` (retired — do not recreate) |
+| New canonical path | `~/skullmaster-iq` |
+| Verified HEAD | `588f388` |
+| `.venv` | rebuilt (the old one had absolute shebangs to the old path) |
+| macOS app | reinstalled; launcher now runs `~/skullmaster-iq/scripts/launcher.sh` |
+| Tests | 233 passed |
+| Diagnostics | all required checks passed; version `v1.4.0` |
+| Data | resolved under `~/skullmaster-iq/data`; persistence preserved |
+
+`~/notebooklm-local` must not be recreated or used as a fallback checkout.
+`.venv.pre-rename` is a preserved rollback environment and must not be used as
+the active environment or deleted until final runtime certification.
+
+## Location independence (the enabler)
 
 - `scripts/launcher.sh` resolves the repo root from its **own location**, with an
   optional `SKULLMASTER_HOME` override.
 - `scripts/install_app.sh` bakes the resolved absolute path into the app's
   executable, so the bundle points at wherever the repo actually is.
 
-This means the local checkout can be moved or renamed and the app re-pointed by
-re-running `scripts/install_app.sh` — no code edits.
+Re-running `scripts/install_app.sh` after a move or rename re-points the app with
+no code edits.
 
-## Explicit migration (manual)
+## Historical references
 
-Perform only when ready, and verify at each step:
-
-1. **Back up** `data/` and the repo (a git clone or archive).
-2. **Rename the folder**: `mv ~/notebooklm-local ~/skullmaster-iq`.
-3. **Re-point the app**: `~/skullmaster-iq/scripts/install_app.sh`.
-4. **Verify before/after**: launch and confirm the UI loads, then
-   `uv run python -m app.diagnostics` and `uv run pytest -q`.
-5. Optionally set `SKULLMASTER_HOME` if the caller can't derive the path.
-
-The GitHub repo rename (Settings → Rename) is a separate, external action; update
-the `origin` remote and any clone URLs afterward.
-
-## Why the local folder was not renamed here
-
-The installed `~/Applications/SkullMaster iQ.app` and the running environment
-referenced `~/notebooklm-local`. Renaming in place while the system is live risks
-breaking the app for no functional gain, so the safe, path-independent
-improvements are implemented and the physical rename is left as the explicit,
-verified step above.
+The pre-migration name `notebooklm-local` survives only where it is
+**intentional history** — for example the dated audit in
+`docs/historical-copies.md`. Do not blindly replace such references; obsolete
+executable or configuration paths would be a different matter, and the active
+code, scripts, `.env*`, and `pyproject.toml` contain none.
