@@ -11,7 +11,7 @@ embedding models would invalidate every stored vector.
 """
 import logging
 
-from ..config import CHAT_MODEL, MLX_ENABLED
+from ..config import CHAT_MODEL, mlx_configured
 from .mlx_provider import MLXProvider
 from .ollama_provider import OllamaProvider
 
@@ -34,23 +34,97 @@ def split(qualified: str) -> tuple[str, str]:
     return OLLAMA, qualified
 
 
+def _label(qualified: str) -> str:
+    """`mlx::org/Model` -> `org/Model` for human-facing messages."""
+    return split(qualified)[1]
+
+
 class RoutingProvider:
-    """Implements LLMProvider by composing the Ollama and MLX backends."""
+    """Implements LLMProvider by composing the Ollama and MLX backends.
+
+    Two model identities are tracked deliberately:
+
+    * ``preferred_model`` — what the user last chose (persisted by the app).
+    * ``chat_model``      — the *active* runtime model, which may be a fallback
+      when the preferred model's backend is currently unreachable.
+
+    Availability is probed live, never frozen at import time, so an endpoint
+    that starts or stops later is handled without a restart and a temporarily
+    offline provider can never prevent the application from booting.
+    """
 
     def __init__(self):
         self.ollama = OllamaProvider()
-        self.mlx = MLXProvider() if MLX_ENABLED else None
-        self.chat_model = qualify(OLLAMA, CHAT_MODEL)
+        # Constructed whenever the mode allows it; reachability is probed live.
+        # auto/true -> an MLXProvider instance exists even if nothing is listening.
+        self.mlx = MLXProvider() if mlx_configured() else None
+        self._preferred = qualify(OLLAMA, CHAT_MODEL)
+        self.chat_model = self._preferred
         self.embed_model = self.ollama.embed_model
+        self.runtime_warning: str | None = None
 
-    # ---- routing ----
+    # ---- backend selection ----
 
-    def _backend(self, name: str):
-        if name == MLX:
+    def _backend(self, backend_name: str):
+        if backend_name == MLX:
             if not self.mlx:
-                raise RuntimeError("MLX backend is not enabled")
+                raise RuntimeError("MLX backend is disabled (MLX_ENABLED=false)")
             return self.mlx
-        return self.ollama
+        if backend_name == OLLAMA:
+            return self.ollama
+        raise RuntimeError(f"unknown model backend: {backend_name!r}")
+
+    def _reachable(self, backend_name: str) -> bool:
+        if backend_name == OLLAMA:
+            try:
+                return bool(self.ollama.status().get("reachable"))
+            except Exception:
+                return False
+        if backend_name == MLX:
+            try:
+                return bool(self.mlx) and self.mlx.reachable()
+            except Exception:
+                return False
+        return False
+
+    def _installed(self, backend_name: str, model: str) -> bool:
+        if backend_name == OLLAMA:
+            return self.ollama.has_model(model)
+        if backend_name == MLX:
+            return self._mlx_has(model)
+        return False
+
+    def _safe_fallback(self) -> str:
+        """A reachable Ollama chat model to use while the preferred one is down.
+
+        Never touches ``_preferred`` — preference is preserved, only the active
+        runtime model changes. Falls back to the configured default even when
+        Ollama itself is down, so the resulting failure is deterministic and
+        attributable rather than a crash.
+        """
+        if self._reachable(OLLAMA):
+            if self.ollama.has_model(CHAT_MODEL):
+                self.ollama.set_chat_model(CHAT_MODEL)
+                return qualify(OLLAMA, CHAT_MODEL)
+            try:
+                for m in self.ollama.list_models():
+                    if m.get("can_chat"):
+                        self.ollama.set_chat_model(m["name"])
+                        return qualify(OLLAMA, m["name"])
+            except Exception:
+                log.warning("Could not enumerate Ollama models for fallback", exc_info=True)
+        self.ollama.set_chat_model(CHAT_MODEL)
+        return qualify(OLLAMA, CHAT_MODEL)
+
+    def _ensure_active(self):
+        """If the active MLX endpoint vanished, move to a working model."""
+        backend_name, model = split(self.chat_model)
+        if backend_name == MLX and not self._reachable(MLX):
+            fallback = self._safe_fallback()
+            self.chat_model = fallback
+            self.runtime_warning = (
+                f"MLX model {model!r} went offline; using {_label(fallback)}.")
+            log.warning("%s", self.runtime_warning)
 
     def _active(self):
         backend_name, model = split(self.chat_model)
@@ -61,6 +135,7 @@ class RoutingProvider:
     # ---- LLMProvider ----
 
     def chat(self, messages: list[dict], stream: bool = False):
+        self._ensure_active()
         return self._active().chat(messages, stream=stream)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -83,10 +158,37 @@ class RoutingProvider:
                 log.warning("Could not list MLX models: %s", e)
         return models
 
-    def set_chat_model(self, name: str):
+    def preferred_model(self) -> str:
+        return self._preferred
+
+    def set_chat_model(self, name: str) -> dict:
+        """Remember `name` as the preferred model and activate it if usable.
+
+        Never raises because a provider is offline — the saved preference is
+        preserved and a reachable fallback becomes active instead. Returns
+        {activated, active, preferred, warning}.
+        """
         backend_name, model = split(name)
-        self._backend(backend_name)      # raises if MLX is off
-        self.chat_model = qualify(backend_name, model)
+        self._preferred = qualify(backend_name, model)
+        if self._reachable(backend_name) and self._installed(backend_name, model):
+            self._backend(backend_name).set_chat_model(model)
+            self.chat_model = self._preferred
+            self.runtime_warning = None
+            return self._selection(activated=True)
+        fallback = self._safe_fallback()
+        self.chat_model = fallback
+        self.runtime_warning = (
+            f"{_label(self._preferred)} is unavailable; using {_label(fallback)}.")
+        log.warning("Model fallback: %s", self.runtime_warning)
+        return self._selection(activated=False)
+
+    def _selection(self, activated: bool) -> dict:
+        return {
+            "activated": activated,
+            "active": self.chat_model,
+            "preferred": self._preferred,
+            "warning": self.runtime_warning,
+        }
 
     def ensure_models(self) -> dict:
         """Only Ollama can pull; MLX models come from the HuggingFace cache."""
@@ -112,6 +214,9 @@ class RoutingProvider:
             base["chat_model_ready"] = bool(self.mlx) and self._mlx_has(model)
         base["chat_backend"] = backend_name
         base["backend"] = f"{OLLAMA}+{MLX}" if self.mlx else OLLAMA
+        base["preferred_model"] = self._preferred
+        if self.runtime_warning:
+            base["warning"] = self.runtime_warning
         if self.mlx:
             base["mlx"] = self.mlx.status()
         return base

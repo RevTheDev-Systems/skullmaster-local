@@ -72,6 +72,13 @@ class OllamaProvider:
     def _installed(self) -> set[str]:
         return {m.model for m in self.client.list().models}
 
+    def has_model(self, name: str) -> bool:
+        """Whether `name` (or its `:latest` alias) is installed locally."""
+        try:
+            return bool({name, f"{name}:latest"} & self._installed())
+        except Exception:
+            return False
+
     def _capabilities(self, name: str) -> list[str]:
         """Ollama reports capabilities from show(), not list()."""
         try:

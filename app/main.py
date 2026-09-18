@@ -45,13 +45,23 @@ CHAT_MODEL_SETTING = "chat_model"
 async def lifespan(app: FastAPI):
     db.init_db()
     log.info("%s v%s starting", PRODUCT_NAME, APP_VERSION)
+    llm = get_llm()
     # A model picked in the UI overrides the .env default for later runs.
     saved = db.get_setting(CHAT_MODEL_SETTING)
     if saved:
-        get_llm().set_chat_model(saved)
-        log.info("Chat model restored from settings: %s", saved)
-    result = get_llm().ensure_models()
-    log.info("Model check: %s", result)
+        try:
+            llm.set_chat_model(saved)
+            log.info("Chat model restored from settings: %s (active: %s)",
+                     saved, getattr(llm, "chat_model", saved))
+        except Exception:
+            # A preferred model whose backend is temporarily offline must never
+            # prevent the app from booting; providers fall back and record a warning.
+            log.exception("Could not restore saved chat model %r; using defaults", saved)
+    try:
+        result = llm.ensure_models()
+        log.info("Model check: %s", result)
+    except Exception:
+        log.exception("Model check failed; continuing in a degraded state")
     yield
 
 
@@ -241,20 +251,35 @@ class ModelIn(BaseModel):
     name: str
 
 
+def _llm_attr(llm, name: str):
+    """Read a provider attribute that may be a plain value or a method."""
+    value = getattr(llm, name, None)
+    return value() if callable(value) else value
+
+
 @app.get("/api/models")
 def models_list():
-    """Installed models plus which one chat is currently using."""
+    """Installed models plus the preferred and currently active chat models.
+
+    `chat_model` is the active runtime model, which may be a fallback when the
+    preferred backend is offline; `preferred_model` is always the user's choice.
+    """
     llm = get_llm()
     try:
         models = llm.list_models()
     except Exception as e:
         raise HTTPException(503, f"Could not reach the model backend: {e}")
-    return {"models": models, "chat_model": llm.chat_model}
+    return {
+        "models": models,
+        "chat_model": llm.chat_model,                       # active runtime model
+        "preferred_model": _llm_attr(llm, "preferred_model") or llm.chat_model,
+        "warning": _llm_attr(llm, "runtime_warning"),
+    }
 
 
 @app.post("/api/models/chat")
 def models_set_chat(body: ModelIn):
-    """Switch the active chat model and remember it across restarts."""
+    """Switch the active chat model and remember the preference across restarts."""
     llm = get_llm()
     try:
         available = {m["name"]: m for m in llm.list_models()}
@@ -265,10 +290,17 @@ def models_set_chat(body: ModelIn):
         raise HTTPException(404, f"Model not installed: {body.name}")
     if not chosen["can_chat"]:
         raise HTTPException(400, f"{body.name} cannot generate chat responses")
-    llm.set_chat_model(body.name)
+    result = llm.set_chat_model(body.name)
+    # The preference is remembered even if the provider is momentarily offline
+    # and a fallback model had to be activated instead.
     db.set_setting(CHAT_MODEL_SETTING, body.name)
-    log.info("Chat model switched to %s", body.name)
-    return {"ok": True, "chat_model": body.name}
+    if isinstance(result, dict):
+        active, warning = result.get("active"), result.get("warning")
+    else:
+        active, warning = llm.chat_model, _llm_attr(llm, "runtime_warning")
+    log.info("Chat model preference set to %s (active: %s)", body.name, active)
+    return {"ok": True, "chat_model": active or llm.chat_model,
+            "preferred_model": body.name, "warning": warning}
 
 
 # ---------- Notebooks ----------

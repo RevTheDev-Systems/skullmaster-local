@@ -165,6 +165,9 @@ async function loadModels({ notify = false } = {}) {
 
     setStatus(health.ok ? "ok" : "err",
               health.ok ? `Ready · ${health.llm.chat_model}` : problemFromHealth(health));
+    // A fallback (e.g. a saved MLX model while MLX is offline) is not an error,
+    // but the user should know which model is actually answering.
+    if (models?.warning) toast(models.warning);
     if (notify) {
       await minSpin;
       toast(health.ok ? `Models refreshed · ${models?.models.length ?? 0} installed`
@@ -194,12 +197,20 @@ $("#model-select").addEventListener("change", async (e) => {
   const previous = state.chatModel;
   e.target.disabled = true;
   try {
-    await api("/api/models/chat", { method: "POST", body: JSON.stringify({ name }) });
-    state.chatModel = name;
-    setStatus("ok", `Ready · ${label}`);
-    toast(option?.dataset.backend === "mlx"
-      ? `Now using ${label} — your first message loads it into memory`
-      : `Now using ${label}`, "success");
+    const res = await api("/api/models/chat", { method: "POST", body: JSON.stringify({ name }) });
+    const active = res.chat_model || name;
+    const activeLabel = (active === name) ? label : active.split("::").pop();
+    state.chatModel = active;
+    e.target.value = active;
+    if (res.warning) {
+      setStatus("err", res.warning);
+      toast(res.warning);
+    } else {
+      setStatus("ok", `Ready · ${activeLabel}`);
+      toast(option?.dataset.backend === "mlx"
+        ? `Now using ${activeLabel} — your first message loads it into memory`
+        : `Now using ${activeLabel}`, "success");
+    }
   } catch (err) {
     e.target.value = previous || "";
     toast(`Could not switch model: ${err.message}`);

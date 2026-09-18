@@ -3,7 +3,9 @@ import ollama
 import pytest
 
 from app import db, main
+from app.config import CHAT_MODEL
 from app.providers.ollama_provider import OllamaProvider
+from app.providers.routing import MLX, OLLAMA, RoutingProvider, qualify
 
 
 def _provider(model: str, thinking_claimed: bool):
@@ -183,3 +185,194 @@ def test_saved_model_restored_on_startup(client, mock_llm):
         assert mock_llm.chat_model == "mock-chat-2"
 
     client.post("/api/models/chat", json={"name": "mock-chat"})
+
+
+def test_models_response_exposes_active_preferred_and_warning(client):
+    body = client.get("/api/models").json()
+    assert body["chat_model"] == body["preferred_model"]
+    assert body["warning"] is None
+
+
+# ---------- provider failover & dynamic discovery (Phase 1) ----------
+
+class _FakeOllama:
+    def __init__(self, *, reachable=True, models=None, default="qwen3:30b",
+                 fail_list=False):
+        self.up = reachable
+        self.fail_list = fail_list
+        self.embed_model = "nomic-embed-text"
+        self.chat_model = default
+        self._models = models if models is not None else [
+            {"name": "qwen3:30b", "size": 1, "parameter_size": "30B",
+             "can_chat": True, "can_embed": False},
+            {"name": "nomic-embed-text", "size": 1, "parameter_size": None,
+             "can_chat": False, "can_embed": True},
+        ]
+
+    def status(self):
+        return {"backend": "ollama", "base_url": "fake", "reachable": self.up,
+                "chat_model": self.chat_model, "chat_model_ready": self.up,
+                "embed_model": self.embed_model, "embed_model_ready": self.up}
+
+    def list_models(self):
+        if not self.up or self.fail_list:
+            raise RuntimeError("ollama down")
+        return [dict(m) for m in self._models]
+
+    def has_model(self, name):
+        return self.up and name in {m["name"] for m in self._models}
+
+    def set_chat_model(self, name):
+        self.chat_model = name
+
+    def chat(self, messages, stream=False):
+        return "ollama-reply"
+
+    def ensure_models(self):
+        return {}
+
+    def ensure_models_for(self, wanted):
+        return {m: "ready" for m in wanted}
+
+
+class _FakeMLX:
+    def __init__(self, *, up=True, models=("qwen3.6-35b",), fail_list=False):
+        self.up = up
+        self.fail_list = fail_list
+        self.chat_model = ""
+        self._models = list(models)
+
+    def reachable(self):
+        return self.up
+
+    def list_models(self):
+        if not self.up or self.fail_list:
+            raise RuntimeError("mlx down")
+        return [{"name": n, "size": None, "parameter_size": None,
+                 "can_chat": True, "can_embed": False} for n in self._models]
+
+    def set_chat_model(self, name):
+        self.chat_model = name
+
+    def chat(self, messages, stream=False):
+        return "mlx-reply"
+
+    def status(self):
+        return {"backend": "mlx", "base_url": "fake", "reachable": self.up,
+                "detail": ""}
+
+
+def _routing(ollama, mlx):
+    """A RoutingProvider with stubbed backends (no live Ollama/MLX needed)."""
+    p = RoutingProvider.__new__(RoutingProvider)
+    p.ollama = ollama
+    p.mlx = mlx
+    p._preferred = qualify(OLLAMA, "qwen3:30b")
+    p.chat_model = p._preferred
+    p.embed_model = ollama.embed_model
+    p.runtime_warning = None
+    return p
+
+
+def test_persisted_mlx_activates_when_available():
+    o, m = _FakeOllama(), _FakeMLX(up=True)
+    p = _routing(o, m)
+    sel = p.set_chat_model(qualify(MLX, "qwen3.6-35b"))
+    assert sel["activated"] is True and sel["warning"] is None
+    assert p.chat_model == qualify(MLX, "qwen3.6-35b")
+    assert p.preferred_model() == qualify(MLX, "qwen3.6-35b")
+    assert m.chat_model == "qwen3.6-35b"
+
+
+def test_persisted_mlx_falls_back_when_unavailable():
+    """Regression: a saved MLX model must not prevent startup when MLX is down."""
+    o, m = _FakeOllama(), _FakeMLX(up=False)
+    p = _routing(o, m)
+    sel = p.set_chat_model(qualify(MLX, "qwen3.6-35b"))
+    assert sel["activated"] is False
+    assert p.chat_model == qualify(OLLAMA, "qwen3:30b")        # active fallback
+    assert p.preferred_model() == qualify(MLX, "qwen3.6-35b")  # preference kept
+    assert "unavailable" in sel["warning"]
+
+
+def test_ollama_fallback_uses_an_installed_chat_model():
+    o = _FakeOllama(models=[
+        {"name": "phi4", "size": 1, "parameter_size": "14B",
+         "can_chat": True, "can_embed": False},
+    ])
+    p = _routing(o, _FakeMLX(up=False))
+    p.set_chat_model(qualify(MLX, "qwen3.6-35b"))
+    assert p.chat_model == qualify(OLLAMA, "phi4")
+
+
+def test_mlx_becomes_reachable_after_startup():
+    o, m = _FakeOllama(), _FakeMLX(up=False, models=("later-model",))
+    p = _routing(o, m)
+    assert not any(x["backend"] == MLX for x in p.list_models())
+    m.up = True                                   # server started after boot
+    assert any(x["name"] == qualify(MLX, "later-model") for x in p.list_models())
+    p.set_chat_model(qualify(MLX, "later-model"))
+    assert p.chat_model == qualify(MLX, "later-model")
+
+
+def test_mlx_disappearing_while_active_falls_back():
+    o, m = _FakeOllama(), _FakeMLX(up=True)
+    p = _routing(o, m)
+    p.set_chat_model(qualify(MLX, "qwen3.6-35b"))
+    m.up = False                                  # endpoint went away mid-session
+    assert p.chat([{"role": "user", "content": "hi"}]) == "ollama-reply"
+    assert p.chat_model == qualify(OLLAMA, "qwen3:30b")
+    assert p.preferred_model() == qualify(MLX, "qwen3.6-35b")
+
+
+def test_malformed_saved_identifier_does_not_raise():
+    p = _routing(_FakeOllama(), _FakeMLX(up=True))
+    sel = p.set_chat_model("weird::name::x")     # unknown prefix -> Ollama, absent
+    assert sel["activated"] is False
+    assert p.chat_model == qualify(OLLAMA, "qwen3:30b")
+    assert sel["warning"]
+    p2 = _routing(_FakeOllama(), _FakeMLX(up=True))
+    assert p2.set_chat_model("")["activated"] is False
+
+
+def test_default_selection_is_env_chat_model():
+    p = RoutingProvider()                          # no saved preference
+    assert p.chat_model == qualify(OLLAMA, CHAT_MODEL)
+    assert p.preferred_model() == p.chat_model
+    assert p.runtime_warning is None
+    assert p.mlx is not None                        # auto mode: provider available
+
+
+def test_model_list_failure_is_isolated_per_provider():
+    p = _routing(_FakeOllama(fail_list=True), _FakeMLX(up=True))
+    assert [m["backend"] for m in p.list_models()] == [MLX]
+
+    p2 = _routing(_FakeOllama(), _FakeMLX(up=True, fail_list=True))
+    assert all(m["backend"] == OLLAMA for m in p2.list_models())
+
+
+def test_lifespan_survives_model_restore_failure(client, monkeypatch):
+    """A saved model whose backend is missing must not abort app startup."""
+    from fastapi.testclient import TestClient
+
+    class _Boom:
+        chat_model = "boom"
+        runtime_warning = None
+
+        def set_chat_model(self, name):
+            raise RuntimeError("MLX backend is not enabled")
+
+        def ensure_models(self):
+            return {}
+
+        def status(self):
+            return {"reachable": False}
+
+    previous = db.get_setting(main.CHAT_MODEL_SETTING)
+    db.set_setting(main.CHAT_MODEL_SETTING, "mlx::unavailable")
+    monkeypatch.setattr(main, "get_llm", lambda: _Boom())
+    try:
+        with TestClient(main.app):   # lifespan must swallow the failure and boot
+            pass
+    finally:
+        db.set_setting(main.CHAT_MODEL_SETTING, previous or "mock-chat")

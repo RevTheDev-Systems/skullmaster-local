@@ -75,10 +75,15 @@ def main() -> int:
     mlx = llm.get("mlx")
     if mlx:
         print("\nMLX backend (optional)")
-        ok &= check("mlx endpoint", mlx.get("reachable", False),
-                    f"{mlx.get('base_url')} — {mlx.get('detail')}",
-                    "start it with: mlx_lm.server --host 127.0.0.1 --port 8080, "
-                    "or set MLX_ENABLED=false in .env")
+        if mlx.get("reachable"):
+            check("mlx endpoint", True, f"{mlx.get('base_url')} — {mlx.get('detail')}")
+        else:
+            # Optional backend: an offline MLX endpoint must not fail diagnostics
+            # (or block startup) — the app simply runs on Ollama until it appears.
+            print(f"  [{YELLOW}WARN{RESET}] mlx endpoint: "
+                  f"{mlx.get('base_url')} — {mlx.get('detail')}")
+            print(f"         start it with: mlx_lm.server --host 127.0.0.1 --port 8080, "
+                  f"or set MLX_ENABLED=false in .env")
 
     print("\nSTT backend (video/audio transcription)")
     stt = get_stt().status()
