@@ -157,6 +157,7 @@ uv run mypy app               # type check
 # RAG evaluation harness — real retrieval/generation over a fixed corpus:
 uv run python -m app.evaluation              # configured models, throwaway data dir
 uv run python -m app.evaluation --no-generate  # retrieval metrics only (fast)
+uv run python -m app.evaluation --sweep        # chunk size/overlap sweep (retrieval)
 
 # Performance benchmarks — startup, discovery, embedding, ingestion, retrieval:
 uv run python -m app.benchmarks --sizes small,medium

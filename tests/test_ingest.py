@@ -257,6 +257,16 @@ def test_unusual_spreadsheet_values(tmp_path):
 # ---------- large inputs ----------
 
 
+def test_chunk_segments_honours_size_and_overlap():
+    text = " ".join(f"Sentence {i} about arrays and sensors." for i in range(300))
+    default = chunk_segments([(None, text)])
+    small = chunk_segments([(None, text)], chunk_chars=800, overlap=100)
+    assert len(small) > len(default)
+    # a chunk is at most size + overlap (the carried tail) plus separators
+    assert all(len(c["text"]) <= 1000 for c in small)
+    assert all(c["page"] is None for c in small)
+
+
 def test_large_document_chunks_without_error(tmp_path):
     big = "\n\n".join(f"Paragraph {i} " + "lorem ipsum dolor " * 20 for i in range(600))
     _, _, segments = ingest.parse_file(_txt(tmp_path / "big.txt", big))

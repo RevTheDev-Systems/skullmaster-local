@@ -19,9 +19,10 @@ subsystems plus the model fabric:
 
 - **OCR** — ✅ delivered: `app/ocr.py` + `parse_pdf` OCR text-less pages only when
   the text layer is insufficient and Tesseract is installed; never by default.
-- **Retrieval tuning** — act on the Phase 5 benchmark's multi-document Recall@3
-  gap: chunk sizing, fusion weighting, and local reranking, measured against
-  `evals/`.
+- **Retrieval tuning** — ✅ delivered: fusion weighting (BM25 1.5 lifted recall@3
+  to 1.0) and a chunk size/overlap sweep (`--sweep`, `evals/chunk-sweep.json`)
+  that shows retrieval is saturated on the current corpus. Reranking/query
+  expansion remain future, gated on a larger corpus.
 - **Source comparison** — ✅ delivered as a `comparison` Studio artifact:
   topics with per-source positions (agree/differ/adds), each attributed to a
   real source or dropped.

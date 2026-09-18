@@ -26,11 +26,18 @@ def _split_long(text: str, limit: int) -> list[str]:
     return final
 
 
-def chunk_segments(segments: list[tuple[int | None, str]]) -> list[dict]:
+def chunk_segments(
+    segments: list[tuple[int | None, str]],
+    *,
+    chunk_chars: int = CHUNK_CHARS,
+    overlap: int = CHUNK_OVERLAP,
+) -> list[dict]:
     """Turn (page, text) segments into chunk dicts: {page, seq, text}.
 
-    Paragraphs are packed into chunks up to CHUNK_CHARS; a tail of the previous
-    chunk is carried forward as overlap so retrieval doesn't lose boundary context.
+    Paragraphs are packed into chunks up to `chunk_chars`; a tail of the previous
+    chunk is carried forward as `overlap` so retrieval doesn't lose boundary
+    context. Both default to the configured values and are injectable so the
+    evaluation harness can sweep them.
     """
     chunks: list[dict] = []
     seq = 0
@@ -38,19 +45,19 @@ def chunk_segments(segments: list[tuple[int | None, str]]) -> list[dict]:
         paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
         blocks: list[str] = []
         for p in paragraphs:
-            if len(p) > CHUNK_CHARS:
-                blocks.extend(_split_long(p, CHUNK_CHARS))
+            if len(p) > chunk_chars:
+                blocks.extend(_split_long(p, chunk_chars))
             else:
                 blocks.append(p)
 
         buf = ""
         for block in blocks:
             candidate = f"{buf}\n\n{block}" if buf else block
-            if len(candidate) > CHUNK_CHARS and buf:
+            if len(candidate) > chunk_chars and buf:
                 chunks.append({"page": page, "seq": seq, "text": buf.strip()})
                 seq += 1
-                overlap = buf[-CHUNK_OVERLAP:] if CHUNK_OVERLAP else ""
-                buf = f"{overlap}\n\n{block}" if overlap else block
+                tail = buf[-overlap:] if overlap else ""
+                buf = f"{tail}\n\n{block}" if tail else block
             else:
                 buf = candidate
         if buf.strip():

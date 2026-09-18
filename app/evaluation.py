@@ -176,8 +176,14 @@ def evaluate(
     db_mod=None,
     rag_mod=None,
     notebook_name: str | None = None,
+    chunk_chars: int | None = None,
+    chunk_overlap: int | None = None,
 ) -> dict:
-    """Ingest the corpus into an isolated notebook and score every question."""
+    """Ingest the corpus into an isolated notebook and score every question.
+
+    `chunk_chars` / `chunk_overlap` override the configured chunking so tuning
+    can be measured; they default to the configured values.
+    """
     from .chunker import chunk_segments
 
     if store_mod is None:
@@ -195,7 +201,12 @@ def evaluate(
 
     try:
         for doc in corpus["documents"]:
-            chunks = chunk_segments(doc_segments(doc))
+            chunk_kwargs = {}
+            if chunk_chars is not None:
+                chunk_kwargs["chunk_chars"] = chunk_chars
+            if chunk_overlap is not None:
+                chunk_kwargs["overlap"] = chunk_overlap
+            chunks = chunk_segments(doc_segments(doc), **chunk_kwargs)
             source = db_mod.create_source(
                 notebook_id,
                 doc["name"],
@@ -327,6 +338,57 @@ def _print_report(report: dict) -> None:
             )
 
 
+def sweep(
+    corpus: dict,
+    *,
+    llm,
+    sizes=(1600, 3200, 6400),
+    overlaps=(0, 200, 400),
+    store_mod=None,
+    db_mod=None,
+) -> list[dict]:
+    """Retrieval-only chunk-size/overlap sweep (measure before tuning)."""
+    results = []
+    for size in sizes:
+        for overlap in overlaps:
+            if overlap >= size:
+                continue
+            report = evaluate(
+                corpus,
+                llm=llm,
+                k_values=(1, 3, 8),
+                generate=False,
+                store_mod=store_mod,
+                db_mod=db_mod,
+                chunk_chars=size,
+                chunk_overlap=overlap,
+            )
+            r = report["retrieval"]
+            results.append(
+                {
+                    "chunk_chars": size,
+                    "overlap": overlap,
+                    "recall@1": r["recall@1"],
+                    "recall@3": r["recall@3"],
+                    "recall@8": r["recall@8"],
+                    "mrr": r["mrr"],
+                    "page_accuracy": r["page_accuracy"],
+                }
+            )
+    return results
+
+
+def _print_sweep(results: list[dict]) -> None:
+    print(f"\nChunk sweep ({len(results)} configurations, retrieval only)")
+    print(f"{'chars':>6} {'overlap':>7} {'R@1':>6} {'R@3':>6} {'R@8':>6} {'MRR':>6} {'page':>6}")
+    for row in results:
+        print(
+            f"{row['chunk_chars']:>6} {row['overlap']:>7} "
+            f"{_fmt(row['recall@1']):>6} {_fmt(row['recall@3']):>6} "
+            f"{_fmt(row['recall@8']):>6} {_fmt(row['mrr']):>6} {_fmt(row['page_accuracy']):>6}"
+        )
+
+
 def main(argv=None) -> int:
     import argparse
     import os
@@ -346,6 +408,11 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--json", dest="json_path", default=None, help="write the full report to this JSON path"
     )
+    parser.add_argument(
+        "--sweep",
+        action="store_true",
+        help="sweep chunk size/overlap (retrieval only) instead of the full report",
+    )
     args = parser.parse_args(argv)
 
     # Point the app at an isolated data dir BEFORE importing app modules, so the
@@ -359,6 +426,15 @@ def main(argv=None) -> int:
     corpus = load_corpus(args.corpus)
     db.init_db()
     llm = get_llm()
+
+    if args.sweep:
+        results = sweep(corpus, llm=llm, store_mod=store, db_mod=db)
+        _print_sweep(results)
+        if args.json_path:
+            payload = {"corpus": corpus.get("name"), "sweep": results}
+            Path(args.json_path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+            print(f"\nWrote {args.json_path}")
+        return 0
 
     started = time.time()
     report = evaluate(

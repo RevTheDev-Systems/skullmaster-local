@@ -46,7 +46,18 @@ vector signal fixes it: **recall@3 0.944 → 1.0** with no change to recall@1
 or any generation metric. `store.RRF_BM25_WEIGHT = 1.5` is now the default, and
 `evals/baseline.json` was regenerated.
 
+## Chunk-size / overlap sweep
+
+`uv run python -m app.evaluation --sweep` re-chunks the corpus at sizes
+1600/3200/6400 with overlaps 0/200/400 and reports retrieval metrics
+(`evals/chunk-sweep.json`). All nine configurations score identically
+(recall@1 0.926, recall@3/@8 1.0, MRR 1.0, page accuracy 1.0): retrieval is
+**saturated** on this corpus, so no chunking change is justified. The configured
+3200/400 stays. Re-run the sweep whenever the corpus is expanded.
+
 ## Observed bottleneck candidates (not yet tuned)
 
 - Retrieval rebuilds the BM25 index over a notebook's rows on every query; fine
   at these sizes, worth revisiting for very large notebooks.
+- Reranking / query expansion remain unexplored — re-evaluate only if a larger
+  corpus shows headroom.

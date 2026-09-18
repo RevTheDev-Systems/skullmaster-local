@@ -177,6 +177,15 @@ def test_generation_metrics_with_scripted_llm(eval_store):
     assert gen["fact_coverage"] is not None
 
 
+def test_chunk_sweep_returns_metrics(eval_store):
+    corpus = evaluation.load_corpus(CORPUS_PATH)
+    results = evaluation.sweep(
+        corpus, llm=LexicalLLM(), sizes=(1600, 3200), overlaps=(0,), store_mod=eval_store, db_mod=db
+    )
+    assert len(results) == 2
+    assert all({"chunk_chars", "overlap", "recall@3", "mrr"} <= set(r) for r in results)
+
+
 def test_refusal_accuracy_with_refusal_llm(eval_store):
     corpus = evaluation.load_corpus(CORPUS_PATH)
     report = evaluation.evaluate(

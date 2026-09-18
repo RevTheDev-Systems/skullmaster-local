@@ -1,0 +1,86 @@
+{
+  "corpus": "skullmaster-retrieval-eval",
+  "sweep": [
+    {
+      "chunk_chars": 1600,
+      "overlap": 0,
+      "recall@1": 0.9259,
+      "recall@3": 1.0,
+      "recall@8": 1.0,
+      "mrr": 1.0,
+      "page_accuracy": 1.0
+    },
+    {
+      "chunk_chars": 1600,
+      "overlap": 200,
+      "recall@1": 0.9259,
+      "recall@3": 1.0,
+      "recall@8": 1.0,
+      "mrr": 1.0,
+      "page_accuracy": 1.0
+    },
+    {
+      "chunk_chars": 1600,
+      "overlap": 400,
+      "recall@1": 0.9259,
+      "recall@3": 1.0,
+      "recall@8": 1.0,
+      "mrr": 1.0,
+      "page_accuracy": 1.0
+    },
+    {
+      "chunk_chars": 3200,
+      "overlap": 0,
+      "recall@1": 0.9259,
+      "recall@3": 1.0,
+      "recall@8": 1.0,
+      "mrr": 1.0,
+      "page_accuracy": 1.0
+    },
+    {
+      "chunk_chars": 3200,
+      "overlap": 200,
+      "recall@1": 0.9259,
+      "recall@3": 1.0,
+      "recall@8": 1.0,
+      "mrr": 1.0,
+      "page_accuracy": 1.0
+    },
+    {
+      "chunk_chars": 3200,
+      "overlap": 400,
+      "recall@1": 0.9259,
+      "recall@3": 1.0,
+      "recall@8": 1.0,
+      "mrr": 1.0,
+      "page_accuracy": 1.0
+    },
+    {
+      "chunk_chars": 6400,
+      "overlap": 0,
+      "recall@1": 0.9259,
+      "recall@3": 1.0,
+      "recall@8": 1.0,
+      "mrr": 1.0,
+      "page_accuracy": 1.0
+    },
+    {
+      "chunk_chars": 6400,
+      "overlap": 200,
+      "recall@1": 0.9259,
+      "recall@3": 1.0,
+      "recall@8": 1.0,
+      "mrr": 1.0,
+      "page_accuracy": 1.0
+    },
+    {
+      "chunk_chars": 6400,
+      "overlap": 400,
+      "recall@1": 0.9259,
+      "recall@3": 1.0,
+      "recall@8": 1.0,
+      "mrr": 1.0,
+      "page_accuracy": 1.0
+    }
+  ]
+}

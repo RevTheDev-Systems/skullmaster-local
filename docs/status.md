@@ -50,8 +50,9 @@ See `README.md` for usage and the architecture overview.
   from naming hints because `/v1/models` exposes no capabilities; treat
   `can_reason` for MLX as a heuristic.
 - **Retrieval tuning** — fusion weighting is tuned (BM25 1.5 lifted recall@3 to
-  1.0); chunk sizing and reranking remain un-tuned until the benchmark justifies
-  changes.
+  1.0) and a chunk size/overlap sweep (`--sweep`) shows all configurations
+  identical on the current corpus (saturated). Reranking/query expansion remain
+  future, gated on a larger corpus.
 
 ## Planned
 
