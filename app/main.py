@@ -242,6 +242,10 @@ class ResearchIn(BaseModel):
     history: list[dict] = []
 
 
+class LibraryGraphIn(BaseModel):
+    notebook_ids: list[str] = []  # empty = all notebooks
+
+
 # ---------- Health ----------
 
 
@@ -758,6 +762,29 @@ def research(body: ResearchIn):
         yield f"event: done\ndata: {json.dumps(cleaned)}\n\n"
 
     return StreamingResponse(sse(), media_type="text/event-stream")
+
+
+@app.post("/api/research/graph")
+def research_graph(body: LibraryGraphIn):
+    """Knowledge graph across notebooks (transient — not stored as an artifact)."""
+    from . import studio
+
+    notebook_ids = body.notebook_ids or [n["id"] for n in db.list_notebooks()]
+    if not notebook_ids:
+        raise HTTPException(400, "No notebooks to graph")
+    for nb_id in notebook_ids:
+        if not db.get_notebook(nb_id):
+            raise HTTPException(404, f"Notebook not found: {nb_id}")
+
+    with _job("*library*", "mindgraph"):
+        try:
+            spec = studio.generate_library_graph(notebook_ids)
+        except studio.StudioError as e:
+            raise HTTPException(422, str(e))
+        except Exception as e:
+            log.exception("Library graph generation failed")
+            raise HTTPException(503, f"Could not generate the graph: {e}")
+    return {"kind": "mindgraph", "title": spec["title"], "spec": spec}
 
 
 # ---------- Studio: Audio Overview ----------

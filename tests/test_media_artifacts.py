@@ -727,6 +727,26 @@ def test_mindgraph_generation_attaches_edge_evidence(client, notebook):
     assert any(link["evidence"] for link in spec["links"])  # at least one bound
 
 
+def test_library_evidence_includes_notebook_name(monkeypatch):
+    monkeypatch.setattr(
+        studio,
+        "notebook_chunks",
+        lambda nb: [
+            {
+                "source_name": "s.txt",
+                "page": 1,
+                "seq": 0,
+                "text": "The Meridian Array outputs power.",
+            },
+        ],
+    )
+    monkeypatch.setattr(studio, "get_notebook", lambda nb: {"id": nb, "name": "Geo"})
+    spec = {"root": "Meridian Array", "branches": [{"label": "T", "children": ["x"]}]}
+    evidence = studio._bind_evidence_chunks(studio._library_chunks(["nb"]), spec)
+    assert evidence["Meridian Array"]["notebook_name"] == "Geo"
+    assert evidence["Meridian Array"]["page"] == 1
+
+
 def test_knowledge_graph_explorer_is_wired():
     from pathlib import Path
 

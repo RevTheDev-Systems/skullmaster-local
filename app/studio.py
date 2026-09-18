@@ -488,15 +488,8 @@ def _words(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", text.lower()))
 
 
-def bind_evidence(notebook_id: str, spec: dict) -> dict:
-    """Bind each knowledge-graph node to its best-matching source chunk.
-
-    Sources → entity extraction (model) → evidence binding (here) → graph UI.
-    Prefers a chunk containing the label verbatim, else the highest token
-    overlap. Deterministic, and never invents a source: nodes with no support
-    are simply left unbound.
-    """
-    chunks = notebook_chunks(notebook_id)
+def _bind_evidence_chunks(chunks: list[dict], spec: dict) -> dict:
+    """Bind graph nodes to their best-matching chunks (see bind_evidence)."""
     labels = [spec["root"]]
     for branch in spec["branches"]:
         labels.append(branch["label"])
@@ -517,12 +510,105 @@ def bind_evidence(notebook_id: str, spec: dict) -> dict:
             if score > best_score:
                 best, best_score = chunk, score
         if best is not None and best_score > 0:
-            evidence[label] = {
+            entry = {
                 "source": best["source_name"],
                 "page": best["page"],
                 "snippet": best["text"][:200],
             }
+            if best.get("notebook_name"):  # cross-notebook graphs
+                entry["notebook_name"] = best["notebook_name"]
+            evidence[label] = entry
     return evidence
+
+
+def bind_evidence(notebook_id: str, spec: dict) -> dict:
+    """Bind each knowledge-graph node to its best-matching source chunk.
+
+    Sources → entity extraction (model) → evidence binding (here) → graph UI.
+    Prefers a chunk containing the label verbatim, else the highest token
+    overlap. Deterministic, and never invents a source: nodes with no support
+    are simply left unbound.
+    """
+    return _bind_evidence_chunks(notebook_chunks(notebook_id), spec)
+
+
+def get_notebook(notebook_id: str) -> dict | None:
+    from .db import get_notebook as _get_notebook
+
+    return _get_notebook(notebook_id)
+
+
+def _library_chunks(notebook_ids: list[str]) -> list[dict]:
+    """All chunks across notebooks, tagged with their notebook name."""
+    chunks: list[dict] = []
+    for nb_id in notebook_ids:
+        notebook = get_notebook(nb_id)
+        name = notebook["name"] if notebook else nb_id
+        for chunk in notebook_chunks(nb_id):
+            chunks.append({**chunk, "notebook_id": nb_id, "notebook_name": name})
+    return chunks
+
+
+def _gather_library_context(notebook_ids: list[str], budget: int) -> str:
+    """Concatenate cross-notebook chunks up to `budget`, labelled by notebook."""
+    rows = _library_chunks(notebook_ids)
+    if not rows:
+        raise StudioError("None of the selected notebooks have sources to talk about")
+    rows.sort(key=lambda r: (r["notebook_name"], r["source_name"], r["seq"]))
+    parts, used = [], 0
+    current = None
+    for row in rows:
+        key = (row["notebook_name"], row["source_name"])
+        if key != current:
+            current = key
+            header = (
+                f"\n\n===== NOTEBOOK: {row['notebook_name']} / SOURCE: {row['source_name']} =====\n"
+            )
+            parts.append(header)
+            used += len(header)
+        take = row["text"][: max(0, budget - used)]
+        if not take:
+            break
+        parts.append(take)
+        used += len(take)
+        if used >= budget:
+            break
+    return "".join(parts).strip()
+
+
+def generate_library_graph(notebook_ids: list[str]) -> dict:
+    """Source-grounded knowledge graph spanning several notebooks."""
+    context = _gather_library_context(notebook_ids, ARTIFACT_CONTEXT_CHARS)
+    messages = [
+        {"role": "system", "content": load_prompt("mindgraph_spec") + UNTRUSTED_DATA_RULE},
+        {
+            "role": "user",
+            "content": (
+                f"Source material from several notebooks:\n\n{context}\n\nProduce the JSON now."
+            ),
+        },
+    ]
+    llm = get_llm()
+    last_err = None
+    for attempt in range(2):
+        raw = _chat_text(llm, messages)
+        try:
+            spec = _validate_artifact_spec("mindgraph", _extract_json(raw))
+            evidence = _bind_evidence_chunks(_library_chunks(notebook_ids), spec)
+            spec["evidence"] = evidence
+            for link in spec.get("links", []):
+                link["evidence"] = evidence.get(link["from"]) or evidence.get(link["to"]) or {}
+            return spec
+        except StudioError:
+            raise
+        except ModelOutputError as e:
+            last_err = e
+            log.warning("Library graph parse failed (attempt %d): %s", attempt + 1, e)
+            messages.append({"role": "assistant", "content": raw[:4000]})
+            messages.append(
+                {"role": "user", "content": f"That was invalid ({e}). Return ONLY the JSON object."}
+            )
+    raise StudioError(f"Could not get a valid library graph from the model: {last_err}")
 
 
 def generate_artifact_spec(notebook_id: str, kind: str) -> dict:

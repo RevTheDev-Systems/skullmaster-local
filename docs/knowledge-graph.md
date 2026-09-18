@@ -32,8 +32,12 @@ Sources ──▶ entity extraction (LLM) ──▶ evidence binding (server) �
 - **Graph explorer** — the rendered graph supports pan (drag), zoom (wheel or
   ＋/－, reset ⟳), and click-to-focus: clicking a node highlights its
   neighbourhood and dims the rest.
+- **Cross-notebook graphs** — `POST /api/research/graph` (the search modal's
+  🧠 Graph button) builds one graph across all notebooks; evidence entries then
+  also carry the notebook name, so each node/edge shows where it came from.
+  Cross-notebook graphs are transient, like research answers.
 
 ## Roadmap
 
-Cross-notebook graphs are the remaining increment. Evidence binding is
-deliberately deterministic and local, so the graph stays reproducible.
+Evidence binding is deliberately deterministic and local, so graphs stay
+reproducible. A future increment is a saved, standalone graph workspace.

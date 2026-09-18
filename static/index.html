@@ -184,7 +184,10 @@
     <div id="search-modal" role="dialog" aria-modal="true" aria-labelledby="search-title">
       <div id="modal-header">
         <span id="search-title">Search library</span>
-        <button id="search-close" type="button" aria-label="Close search">✕</button>
+        <div class="modal-header-actions">
+          <button id="search-graph" type="button" title="Build a knowledge graph across all notebooks">🧠 Graph</button>
+          <button id="search-close" type="button" aria-label="Close search">✕</button>
+        </div>
       </div>
       <form id="search-form">
         <input type="text" id="search-input" placeholder="Search across all notebooks…" autocomplete="off" />

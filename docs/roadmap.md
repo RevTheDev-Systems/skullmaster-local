@@ -31,8 +31,8 @@ subsystems plus the model fabric:
 ## Mid term
 
 - **Richer knowledge graph** — ✅ typed entities/relations with evidence-bound
-  edges and a graph explorer (pan/zoom, click-to-focus) are delivered;
-  cross-notebook graphs are the next increment.
+  edges, a graph explorer (pan/zoom, click-to-focus), and cross-notebook graphs
+  are delivered.
 - **Semantic notebook search** — ✅ delivered: `GET /api/search` searches every
   notebook at once (semantic + keyword), grouped by notebook, opening the exact
   passage.

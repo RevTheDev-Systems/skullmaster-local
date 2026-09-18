@@ -1647,6 +1647,27 @@ function renderSearch(data) {
   }
 }
 
+$("#search-graph").addEventListener("click", async () => {
+  const btn = $("#search-graph");
+  if (btn.disabled) return;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "⏳";
+  try {
+    const artifact = await api("/api/research/graph", {
+      method: "POST",
+      body: JSON.stringify({ notebook_ids: [] }),
+    });
+    closeSearch();
+    showArtifact(artifact);
+  } catch (err) {
+    toast(`Could not build the graph: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+});
+
 $("#search-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const q = $("#search-input").value.trim();

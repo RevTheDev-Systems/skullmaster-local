@@ -280,6 +280,35 @@ def test_library_search_requires_query(client):
     assert client.get("/api/search", params={"q": "   "}).status_code == 400
 
 
+# ---------- cross-notebook knowledge graph ----------
+
+
+def test_research_graph_spans_notebooks(client, notebook):
+    other = client.post("/api/notebooks", json={"name": "Second"}).json()
+    _upload(
+        client,
+        notebook["id"],
+        name=b"geo.txt",
+        content=b"The Meridian Array sits in the Atacama Desert and outputs 1.2 GW.",
+    )
+    _upload(
+        client, other["id"], name=b"cost.txt", content=b"The Meridian Array cost $940M to build."
+    )
+
+    res = client.post("/api/research/graph", json={"notebook_ids": []})
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["kind"] == "mindgraph" and data["title"]
+    spec = data["spec"]
+    assert spec["root"] and spec["branches"]
+    assert any(ev.get("notebook_name") for ev in spec["evidence"].values())
+
+
+def test_research_graph_unknown_notebook_404(client):
+    res = client.post("/api/research/graph", json={"notebook_ids": ["nope"]})
+    assert res.status_code == 404
+
+
 # ---------- audio overview ----------
 
 
