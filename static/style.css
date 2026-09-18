@@ -379,6 +379,9 @@ button:focus-visible, .btn:focus-visible, select:focus-visible, input:focus-visi
 .art-timeline { list-style: none; padding-left: 0; }
 .art-timeline li { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--border); }
 .art-timeline .art-time { min-width: 92px; font-weight: 700; color: var(--accent); }
+.chat-tools { display: flex; align-items: center; gap: 12px; }
+.research-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+.research-toggle input { accent-color: var(--accent); }
 .stance { padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
 .stance-agree { background: rgba(16, 185, 129, 0.16); color: #059669; }
 .stance-differ { background: rgba(239, 68, 68, 0.16); color: #dc2626; }

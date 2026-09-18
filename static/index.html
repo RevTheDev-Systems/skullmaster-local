@@ -74,7 +74,12 @@
       <section class="panel center-panel" id="chat-panel" data-panel="chat" aria-label="Chat">
         <div class="panel-toolbar">
           <h2>Chat</h2>
-          <button type="button" id="chat-clear" title="Clear chat history" aria-label="Clear chat history">Clear chat</button>
+          <div class="chat-tools">
+            <label class="research-toggle" title="Answer across every notebook in your library">
+              <input type="checkbox" id="research-all" /> All notebooks
+            </label>
+            <button type="button" id="chat-clear" title="Clear chat history" aria-label="Clear chat history">Clear chat</button>
+          </div>
         </div>
 
         <div id="messages" aria-live="polite"></div>

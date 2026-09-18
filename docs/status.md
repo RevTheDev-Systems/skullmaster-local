@@ -14,6 +14,9 @@ See `README.md` for usage and the architecture overview.
 - **Grounded chat** — closed-world prompt, SSE streaming, validated inline
   `[n]` citations, persisted conversation with `completed` / `interrupted`
   turn states.
+- **Cross-notebook research** — answer across the whole library with a
+  diversity-merged retrieval pass and notebook-attributed citations (transient,
+  not persisted to a notebook).
 - **Studio** — Audio Overview; chart / infographic / spreadsheet / mind graph;
   source comparison (each position attributed to a real source); and the text
   artifacts (briefing, study guide, FAQ, timeline, source summary).

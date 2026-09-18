@@ -7,6 +7,7 @@ document.documentElement.dataset.theme =
 
 let setupMode = false;
 let submitting = false;
+let minLength = 8;
 
 function showError(message) {
   const el = $("#login-error");
@@ -14,16 +15,35 @@ function showError(message) {
   el.hidden = !message;
 }
 
-function applySetupMode(minLength) {
+function applyLoginMode() {
+  setupMode = false;
+  $("#login-heading").textContent = "Sign in";
+  $("#login-sub").textContent = "Enter your password to open your notebooks.";
+  $("#password").setAttribute("autocomplete", "current-password");
+  $("#confirm-field").hidden = true;
+  $("#confirm").value = "";
+  $("#login-submit").textContent = "Sign in";
+  $("#login-alt").textContent = "Create account";
+  $("#login-note").textContent =
+    "Your password is stored only on this machine as a salted hash, and never leaves it.";
+  showError("");
+  $("#password").focus();
+}
+
+function applySetupMode(length = minLength) {
+  minLength = length;
   setupMode = true;
   $("#login-heading").textContent = "Create your password";
   $("#login-sub").textContent =
-    `This is the first run — choose a password to protect your notebooks (at least ${minLength} characters).`;
+    `Choose a password to protect your notebooks (at least ${minLength} characters).`;
   $("#password").setAttribute("autocomplete", "new-password");
   $("#confirm-field").hidden = false;
-  $("#login-submit").textContent = "Create password";
+  $("#login-submit").textContent = "Create account";
+  $("#login-alt").textContent = "Return to logon";
   $("#login-note").textContent =
     "There is no default password and no recovery: this is stored only on this machine, as a salted hash.";
+  showError("");
+  $("#password").focus();
 }
 
 async function init() {
@@ -34,11 +54,21 @@ async function init() {
       window.location.replace("/");
       return;
     }
-    if (status.setup_required) applySetupMode(status.min_password_length);
+    minLength = status.min_password_length || minLength;
+    // First run goes straight to account creation; otherwise sign in first.
+    if (status.setup_required) applySetupMode(minLength);
+    else applyLoginMode();
   } catch {
     showError("Cannot reach the SkullMaster iQ server. Is it still running?");
   }
 }
+
+// Toggle between "Sign in" and "Create account" (and back to logon).
+$("#login-alt").addEventListener("click", () => {
+  if (submitting) return;
+  if (setupMode) applyLoginMode();
+  else applySetupMode(minLength);
+});
 
 $("#login-form").addEventListener("submit", async (e) => {
   e.preventDefault();

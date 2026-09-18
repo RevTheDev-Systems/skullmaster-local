@@ -34,7 +34,7 @@ from .config import (
     config_report,
 )
 from .providers import get_llm, get_stt, get_tts
-from .rag import answer_stream, strip_invalid_citations
+from .rag import answer_stream, research_stream, strip_invalid_citations
 
 # Logger names carry the failure category, e.g. app.providers.routing
 # (provider), app.studio (malformed model output), app.rag (retrieval);
@@ -233,6 +233,12 @@ class UrlIn(BaseModel):
 
 class ChatIn(BaseModel):
     question: str
+    history: list[dict] = []
+
+
+class ResearchIn(BaseModel):
+    question: str
+    notebook_ids: list[str] = []  # empty = all notebooks
     history: list[dict] = []
 
 
@@ -660,6 +666,57 @@ def chat(notebook_id: str, body: ChatIn):
         finally:
             # Covers a close before/around the first yield.
             finalize("interrupted", full)
+
+    return StreamingResponse(sse(), media_type="text/event-stream")
+
+
+@app.post("/api/research")
+def research(body: ResearchIn):
+    """Answer across the whole library (or selected notebooks), with citations
+    attributed to their notebook. Research answers are transient — they are not
+    persisted to any single notebook."""
+    notebook_ids = body.notebook_ids or [n["id"] for n in db.list_notebooks()]
+    if not notebook_ids:
+        raise HTTPException(400, "No notebooks to search")
+    for nb_id in notebook_ids:
+        if not db.get_notebook(nb_id):
+            raise HTTPException(404, f"Notebook not found: {nb_id}")
+
+    try:
+        chunks, tokens = research_stream(notebook_ids, body.question, body.history)
+    except Exception:
+        log.exception("Research retrieval failed")
+        raise HTTPException(503, "Could not retrieve sources for this question")
+
+    sources_payload = [
+        {
+            "n": i + 1,
+            "source_id": c["source_id"],
+            "source_name": c["source_name"],
+            "notebook_id": c.get("notebook_id"),
+            "notebook_name": c.get("notebook_name", ""),
+            "kind": c.get("kind", "text"),
+            "page": c["page"],
+            "text": c["text"],
+        }
+        for i, c in enumerate(chunks)
+    ]
+
+    def sse():
+        full = ""
+        try:
+            yield f"event: sources\ndata: {json.dumps(sources_payload)}\n\n"
+            for tok in tokens:
+                full += tok
+                yield f"event: token\ndata: {json.dumps(tok)}\n\n"
+        except GeneratorExit:
+            raise
+        except Exception as e:
+            log.exception("Research stream failed")
+            yield f"event: error\ndata: {json.dumps(f'Model error: {e}')}\n\n"
+            return
+        cleaned = strip_invalid_citations(full, len(chunks))
+        yield f"event: done\ndata: {json.dumps(cleaned)}\n\n"
 
     return StreamingResponse(sse(), media_type="text/event-stream")
 

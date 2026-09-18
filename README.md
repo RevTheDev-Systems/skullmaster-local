@@ -9,6 +9,7 @@ via [Ollama](https://ollama.com). No cloud APIs, no telemetry, no tracking.
 - **Notebooks & sources** — upload PDF, DOCX, TXT/MD, XLSX, video, or audio files, or add URLs; multiple sources per notebook
 - **Video & audio sources** — uploads are transcribed locally with Whisper, playable in-app, and fully searchable in chat; media citations carry timestamps and a "Play from" button that seeks the player to the cited moment
 - **Closed-world RAG chat** — answers come ONLY from your sources; off-corpus questions are declined instead of hallucinated
+- **Cross-notebook research** — flip on **All notebooks** in the chat bar to answer across your whole library; retrieval is merged with a diversity pass so one notebook can't dominate, and citations name the notebook they came from (research answers are transient, not saved to a notebook)
 - **Inline citations** — every claim carries a clickable `[n]` chip that opens the exact source passage (with page numbers for PDFs, timestamps for media)
 - **Audio Overview** — a two-host podcast conversation about your sources, synthesized with a local TTS model, playable and downloadable in the UI
 - **Grounded documents** — Studio also writes a **briefing document, study guide, FAQ, timeline, and source summary** from your sources, each downloadable as Markdown; like every generator, they must cite the sources or refuse
@@ -242,7 +243,7 @@ app/
                    hardened URL fetch; failures normalized to IngestError
   chunker.py       paragraph-packing chunker (~800 tok, overlap), page metadata
   store.py         LanceDB vector store + BM25, reciprocal-rank-fusion hybrid search
-  rag.py           retrieval → grounded prompt → streamed cited answer
+  rag.py           retrieval → grounded prompt → streamed cited answer; research
   studio.py        podcast + all grounded artifacts (visual and text) + evidence binding
   evaluation.py    deterministic RAG benchmark (python -m app.evaluation)
   benchmarks.py    local performance benchmarks (python -m app.benchmarks)

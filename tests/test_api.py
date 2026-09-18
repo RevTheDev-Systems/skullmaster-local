@@ -2,6 +2,7 @@
 mock LLM/TTS providers (final acceptance against real models is run separately)."""
 
 import io
+import json
 
 from app import db, main, store
 from app.config import AUDIO_DIR, UPLOADS_DIR
@@ -202,6 +203,49 @@ def test_chat_empty_notebook_declines(client, notebook):
         f"/api/notebooks/{notebook['id']}/chat", json={"question": "Anything?", "history": []}
     )
     assert "couldn't find this in your sources" in res.text
+
+
+# ---------- cross-notebook research ----------
+
+
+def test_research_answers_across_notebooks(client, notebook):
+    other = client.post("/api/notebooks", json={"name": "Second"}).json()
+    _upload(
+        client,
+        notebook["id"],
+        name=b"a.txt",
+        content=b"The zephyr wombat festival happens every March.",
+    )
+    _upload(
+        client,
+        other["id"],
+        name=b"b.txt",
+        content=b"Tickets for the zephyr wombat festival cost 42 tugrik.",
+    )
+
+    res = client.post(
+        "/api/research",
+        json={
+            "question": "When is the zephyr wombat festival and how much do tickets cost?",
+            "history": [],
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert "event: sources" in res.text and "event: done" in res.text
+
+    sources_line = next(line for line in res.text.splitlines() if line.startswith("data: ["))
+    payload = json.loads(sources_line.removeprefix("data: "))
+    names = {p["notebook_name"] for p in payload}
+    assert notebook["name"] in names and "Second" in names
+    assert all(p["notebook_id"] for p in payload)
+
+    # research is transient: nothing is persisted to a notebook
+    assert client.get(f"/api/notebooks/{notebook['id']}/messages").json() == []
+
+
+def test_research_unknown_notebook_404(client):
+    res = client.post("/api/research", json={"question": "x", "notebook_ids": ["nope"]})
+    assert res.status_code == 404
 
 
 # ---------- audio overview ----------

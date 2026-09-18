@@ -205,3 +205,12 @@ def test_session_survives_server_restart(client):
 def test_stale_cookie_is_rejected(client):
     client.cookies.set(auth.COOKIE_NAME, "stale-not-a-real-token")
     assert client.get("/api/notebooks").status_code == 401
+
+
+def test_login_page_offers_create_and_return_to_logon(anon_client):
+    html = anon_client.get("/login").text
+    assert 'id="login-alt"' in html  # the mode-switch button exists
+    js = anon_client.get("/static/login.js").text
+    assert "Create account" in js
+    assert "Return to logon" in js
+    assert "applyLoginMode" in js and "applySetupMode" in js

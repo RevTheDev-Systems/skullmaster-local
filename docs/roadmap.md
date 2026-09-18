@@ -25,8 +25,8 @@ subsystems plus the model fabric:
 - **Source comparison** — ✅ delivered as a `comparison` Studio artifact:
   topics with per-source positions (agree/differ/adds), each attributed to a
   real source or dropped.
-- **Cross-notebook research** — search/synthesize across notebooks with
-  citations, reusing the retrieval + grounded-answer path.
+- **Cross-notebook research** — ✅ delivered: an "All notebooks" chat mode with
+  diversity-merged retrieval and notebook-attributed citations.
 
 ## Mid term
 

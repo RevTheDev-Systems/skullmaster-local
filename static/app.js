@@ -517,9 +517,11 @@ $("#chat-clear").addEventListener("click", async () => {
 
 function showCitation(c) {
   const isMedia = c.kind === "video" || c.kind === "audio";
-  $("#modal-title").textContent = isMedia && c.page != null
+  const prefix = c.notebook_name ? `${c.notebook_name} › ` : "";
+  const where = isMedia && c.page != null
     ? `${c.source_name} — at ${fmtTime(c.page)}`
     : c.page ? `${c.source_name} — page ${c.page}` : c.source_name;
+  $("#modal-title").textContent = prefix + where;
   $("#modal-body").textContent = c.text;
   const play = $("#modal-play");
   play.hidden = !isMedia;
@@ -585,7 +587,8 @@ $("#chat-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (state.chatBusy) return;
   const question = $("#chat-input").value.trim();
-  if (!question || !state.current) return;
+  const research = $("#research-all").checked;
+  if (!question || (!research && !state.current)) return;
   $("#chat-input").value = "";
   state.chatBusy = true;
   $("#chat-send").disabled = true;
@@ -593,16 +596,20 @@ $("#chat-form").addEventListener("submit", async (e) => {
   addMessage("user", question);
   const assistantEl = addMessage("assistant", "");
   assistantEl.classList.add("thinking");
-  assistantEl.textContent = "Searching sources…";
+  assistantEl.textContent = research ? "Searching all notebooks…" : "Searching sources…";
 
   let citations = [];
   let fullText = "";
 
   try {
-    const res = await fetch(`/api/notebooks/${state.current}/chat`, {
+    const url = research ? "/api/research" : `/api/notebooks/${state.current}/chat`;
+    const body = research
+      ? { question, notebook_ids: [], history: state.history }
+      : { question, history: state.history };
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, history: state.history }),
+      body: JSON.stringify(body),
     });
     if (res.status === 401) { window.location.replace("/login"); return; }
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
@@ -646,6 +653,12 @@ $("#chat-form").addEventListener("submit", async (e) => {
       }
     }
 
+    if (research && fullText) {
+      const note = document.createElement("div");
+      note.className = "msg-note";
+      note.textContent = "Researched across all notebooks — not saved to this notebook.";
+      assistantEl.appendChild(note);
+    }
     state.history.push({ role: "user", content: question });
     state.history.push({ role: "assistant", content: fullText });
   } catch (err) {
@@ -657,6 +670,12 @@ $("#chat-form").addEventListener("submit", async (e) => {
     $("#chat-send").disabled = false;
     $("#chat-input").focus();
   }
+});
+
+$("#research-all").addEventListener("change", (e) => {
+  $("#chat-input").placeholder = e.target.checked
+    ? "Ask across all notebooks…"
+    : "Ask about your sources…";
 });
 
 // ---------- Studio: Audio Overview ----------

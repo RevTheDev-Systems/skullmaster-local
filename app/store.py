@@ -107,6 +107,57 @@ RRF_VECTOR_WEIGHT = 1.0
 RRF_BM25_WEIGHT = 1.5
 
 
+def _hybrid_ranked(
+    notebook_id: str,
+    query: str,
+    limit: int,
+    llm,
+    vector_weight: float,
+    bm25_weight: float,
+) -> list[dict]:
+    """Fused (row, score) candidates for one notebook, best first."""
+    tbl = _table()
+    if tbl is None:
+        return []
+    qvec = llm.embed([query])[0]
+    vector_hits = (
+        tbl.search(qvec)
+        .where(f"notebook_id = '{notebook_id}'", prefilter=True)
+        .limit(VECTOR_CANDIDATES)
+        .to_list()
+    )
+    all_rows = _notebook_rows(notebook_id)
+    if not all_rows:
+        return []
+    bm25 = BM25Okapi([_tokenize(r["text"]) for r in all_rows])
+    scores = bm25.get_scores(_tokenize(query))
+    bm25_ranked = sorted(zip(all_rows, scores), key=lambda p: p[1], reverse=True)
+    bm25_hits = [r for r, s in bm25_ranked[:VECTOR_CANDIDATES] if s > 0]
+
+    fused: dict[str, dict] = {}
+    RRF_K = 60
+    for rank, row in enumerate(vector_hits):
+        entry = fused.setdefault(row["id"], {"row": row, "score": 0.0})
+        entry["score"] += vector_weight / (RRF_K + rank + 1)
+    for rank, row in enumerate(bm25_hits):
+        entry = fused.setdefault(row["id"], {"row": row, "score": 0.0})
+        entry["score"] += bm25_weight / (RRF_K + rank + 1)
+    return sorted(fused.values(), key=lambda e: e["score"], reverse=True)[:limit]
+
+
+def _result(row: dict, *, with_notebook: bool = False) -> dict:
+    result = {
+        "id": row["id"],
+        "source_id": row["source_id"],
+        "source_name": row["source_name"],
+        "page": row["page"] if row["page"] >= 0 else None,
+        "text": row["text"],
+    }
+    if with_notebook:
+        result["notebook_id"] = row["notebook_id"]
+    return result
+
+
 def hybrid_search(
     notebook_id: str,
     query: str,
@@ -123,37 +174,9 @@ def hybrid_search(
     `vector_weight` / `bm25_weight` and `max_per_source` exist for benchmark
     tuning.
     """
-    tbl = _table()
-    if tbl is None:
-        return []
-
-    qvec = (llm or get_llm()).embed([query])[0]
-    vector_hits = (
-        tbl.search(qvec)
-        .where(f"notebook_id = '{notebook_id}'", prefilter=True)
-        .limit(VECTOR_CANDIDATES)
-        .to_list()
+    ordered = _hybrid_ranked(
+        notebook_id, query, VECTOR_CANDIDATES, llm or get_llm(), vector_weight, bm25_weight
     )
-
-    all_rows = _notebook_rows(notebook_id)
-    if not all_rows:
-        return []
-    bm25 = BM25Okapi([_tokenize(r["text"]) for r in all_rows])
-    scores = bm25.get_scores(_tokenize(query))
-    bm25_ranked = sorted(zip(all_rows, scores), key=lambda p: p[1], reverse=True)
-    bm25_hits = [r for r, s in bm25_ranked[:VECTOR_CANDIDATES] if s > 0]
-
-    # Reciprocal rank fusion
-    fused: dict[str, dict] = {}
-    RRF_K = 60
-    for rank, row in enumerate(vector_hits):
-        entry = fused.setdefault(row["id"], {"row": row, "score": 0.0})
-        entry["score"] += vector_weight / (RRF_K + rank + 1)
-    for rank, row in enumerate(bm25_hits):
-        entry = fused.setdefault(row["id"], {"row": row, "score": 0.0})
-        entry["score"] += bm25_weight / (RRF_K + rank + 1)
-
-    ordered = sorted(fused.values(), key=lambda e: e["score"], reverse=True)
     if max_per_source:
         ranked: list[dict] = []
         per_source: dict[str, int] = {}
@@ -167,16 +190,46 @@ def hybrid_search(
                 break
     else:
         ranked = ordered[:k]
-    results = []
-    for e in ranked:
-        row = e["row"]
-        results.append(
-            {
-                "id": row["id"],
-                "source_id": row["source_id"],
-                "source_name": row["source_name"],
-                "page": row["page"] if row["page"] >= 0 else None,
-                "text": row["text"],
-            }
-        )
-    return results
+    return [_result(e["row"]) for e in ranked]
+
+
+def hybrid_search_many(
+    notebook_ids: list[str],
+    query: str,
+    k: int = TOP_K,
+    llm=None,
+    *,
+    vector_weight: float = RRF_VECTOR_WEIGHT,
+    bm25_weight: float = RRF_BM25_WEIGHT,
+) -> list[dict]:
+    """Cross-notebook retrieval for research mode.
+
+    Each notebook is ranked independently, then results are merged with a
+    diversity pass: the best passage from each notebook first (so a single
+    notebook can't fill the context), then the remaining highest-scoring
+    passages. Results carry `notebook_id`.
+    """
+    llm = llm or get_llm()
+    grouped = [
+        _hybrid_ranked(nb, query, VECTOR_CANDIDATES, llm, vector_weight, bm25_weight)
+        for nb in notebook_ids
+    ]
+    selected: list[dict] = []
+    used = [0] * len(grouped)
+
+    # Best passage from each notebook, highest-scoring first.
+    for entry, index in sorted(
+        ((g[0], i) for i, g in enumerate(grouped) if g),
+        key=lambda pair: pair[0]["score"],
+        reverse=True,
+    ):
+        selected.append(entry)
+        used[index] = 1
+        if len(selected) >= k:
+            return [_result(e["row"], with_notebook=True) for e in selected]
+
+    # Fill the rest by global score.
+    rest = [entry for i, g in enumerate(grouped) for entry in g[used[i] :]]
+    rest.sort(key=lambda e: e["score"], reverse=True)
+    selected.extend(rest)
+    return [_result(e["row"], with_notebook=True) for e in selected[:k]]
