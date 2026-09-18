@@ -206,3 +206,158 @@ def test_validate_spreadsheet_pads_rows():
         "title": "t", "columns": ["a", "b", "c"], "rows": [["1"], ["1", "2", "3", "4"]],
     })
     assert spec["rows"] == [["1", "", ""], ["1", "2", "3"]]
+
+
+# ---------- Phase 2: spreadsheet title sanitation ----------
+
+@pytest.mark.parametrize("raw,expected", [
+    ("Q3: Results", "Q3 Results"),
+    ("Sales/Demand", "Sales Demand"),
+    ("Data [final]", "Data final"),
+    ("A\\B", "A B"),
+    ("Why?", "Why"),
+    ("*Metrics*", "Metrics"),
+    ("[]", "Data"),
+    ("   ", "Data"),
+    ("'quoted'", "quoted"),
+])
+def test_safe_sheet_title_normalizes_illegal_characters(raw, expected):
+    assert studio._safe_sheet_title(raw) == expected
+
+
+def test_safe_sheet_title_enforces_excel_limit_and_unicode():
+    out = studio._safe_sheet_title("Résumé financier — " + "é" * 40)
+    assert len(out) <= 31
+    assert out.startswith("Résumé financier")
+
+
+def test_write_xlsx_accepts_illegal_and_unicode_titles(tmp_path):
+    from openpyxl import load_workbook
+
+    titles = ["Q3: Results", "Sales/Demand", "Data [final]", "A\\B",
+              "Why?", "*Metrics*", "[]", "Résumé — données 2026"]
+    for title in titles:
+        path = tmp_path / "book.xlsx"
+        studio.write_xlsx({"title": title, "columns": ["A"], "rows": [[1]]}, path)
+        sheet = load_workbook(path).active.title
+        assert sheet == studio._safe_sheet_title(title)
+        assert sheet and len(sheet) <= 31
+
+
+# ---------- Phase 2: retry boundaries ----------
+
+def test_extract_json_rejects_non_object():
+    with pytest.raises(studio.ModelOutputError):
+        studio._extract_json("[1, 2, 3]")
+    with pytest.raises(studio.ModelOutputError):
+        studio._extract_json("no json here")
+
+
+def test_validate_artifact_spec_rejects_non_dict():
+    with pytest.raises(studio.ModelOutputError):
+        studio._validate_artifact_spec("chart", ["not", "a", "dict"])
+
+
+def test_validate_spreadsheet_rejects_non_list_row():
+    with pytest.raises(studio.ModelOutputError):
+        studio._validate_artifact_spec("spreadsheet", {
+            "title": "t", "columns": ["a", "b"], "rows": ["oops"]})
+
+
+def test_validate_mindgraph_ignores_non_scalar_children():
+    spec = studio._validate_artifact_spec("mindgraph", {
+        "title": "t", "root": "r",
+        "branches": [
+            {"label": "A", "children": ["good", {"bad": 1}, ["also", "bad"], 7]},
+            {"label": "B", "children": ["x"]},
+        ]})
+    assert spec["branches"][0]["children"] == ["good", "7"]
+    assert spec["branches"][1]["children"] == ["x"]
+
+
+def test_generate_script_retries_and_ignores_broken_lines(monkeypatch):
+    class LLM:
+        def __init__(self):
+            self.calls = 0
+
+        def chat(self, messages, stream=False):
+            self.calls += 1
+            if self.calls == 1:
+                # empty + missing speakers previously raised IndexError -> 500
+                return '{"title":"t","lines":[{"speaker":"","text":"hi"},{"text":"x"}]}'
+            return json.dumps({"title": "Good", "lines": [
+                {"speaker": "A", "text": "one"}, {"speaker": "B", "text": "two"},
+                {"speaker": "A", "text": "three"}, {"speaker": "B", "text": "four"}]})
+
+    llm = LLM()
+    monkeypatch.setattr(studio, "_gather_context", lambda nb: "ctx")
+    monkeypatch.setattr(studio, "get_llm", lambda: llm)
+    out = studio.generate_script("nb")
+    assert out["title"] == "Good" and len(out["lines"]) == 4
+    assert llm.calls == 2
+
+
+def _artifact_llm(replies):
+    class LLM:
+        def __init__(self):
+            self.calls = 0
+
+        def chat(self, messages, stream=False):
+            reply = replies[min(self.calls, len(replies) - 1)]
+            self.calls += 1
+            return reply
+    return LLM()
+
+
+@pytest.mark.parametrize("first", [
+    "[1, 2, 3]",                                                    # top-level array
+    '{"title":"t","type":"scatter","labels":["a"],"values":[1]}',   # invalid chart type
+    '{"type":"bar","labels":["a","b"],"values":[1]}',              # missing title
+    '{"title":"t","type":"bar","labels":["a","b"],"values":["x","y"]}',  # non-numeric
+])
+def test_generate_artifact_spec_retries_malformed_structures(monkeypatch, first):
+    good = json.dumps({"title": "OK", "type": "bar",
+                       "labels": ["a", "b"], "values": [1, 2]})
+    llm = _artifact_llm([first, good])
+    monkeypatch.setattr(studio, "_gather_context", lambda nb: "ctx")
+    monkeypatch.setattr(studio, "get_llm", lambda: llm)
+    spec = studio.generate_artifact_spec("nb", "chart")
+    assert spec["title"] == "OK" and spec["values"] == [1.0, 2.0]
+    assert llm.calls == 2
+
+
+def test_generate_artifact_spec_gives_up_with_studio_error(monkeypatch):
+    llm = _artifact_llm(["[1,2,3]"])
+    monkeypatch.setattr(studio, "_gather_context", lambda nb: "ctx")
+    monkeypatch.setattr(studio, "get_llm", lambda: llm)
+    with pytest.raises(studio.StudioError):
+        studio.generate_artifact_spec("nb", "chart")
+    assert llm.calls == 2
+
+
+def test_generate_artifact_spec_does_not_retry_model_refusal(monkeypatch):
+    llm = _artifact_llm([json.dumps({"error": "not enough numeric data"})])
+    monkeypatch.setattr(studio, "_gather_context", lambda nb: "ctx")
+    monkeypatch.setattr(studio, "get_llm", lambda: llm)
+    with pytest.raises(studio.StudioError):
+        studio.generate_artifact_spec("nb", "chart")
+    assert llm.calls == 1          # a model refusal is final, not retried
+
+
+# ---------- Phase 2: infographic stat count ----------
+
+def test_validate_infographic_keeps_all_six_stats():
+    spec = studio._validate_artifact_spec("infographic", {
+        "title": "t",
+        "stats": [{"value": str(i), "label": f"s{i}"} for i in range(1, 7)],
+        "sections": [{"heading": "h", "points": ["p"]}],
+    })
+    assert len(spec["stats"]) == 6
+
+
+def test_validate_infographic_rejects_seven_stats():
+    with pytest.raises(studio.ModelOutputError):
+        studio._validate_artifact_spec("infographic", {
+            "title": "t",
+            "stats": [{"value": str(i), "label": f"s{i}"} for i in range(7)],
+            "sections": [{"heading": "h", "points": ["p"]}]})

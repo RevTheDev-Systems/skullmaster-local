@@ -842,14 +842,21 @@ function renderInfographic(spec) {
   }
   yPos += 16;
 
-  const stats = spec.stats.slice(0, 4);
-  const cellW = (W - pad * 2) / stats.length;
+  // Render every accepted stat (the validator allows up to 6) — never silently
+  // discard accepted information. Beyond one row of four they wrap to rows of 3.
+  const stats = spec.stats;
+  const perRow = stats.length <= 4 ? stats.length : 3;
+  const cellW = (W - pad * 2) / perRow;
+  const rowH = 74;
   let statBottom = yPos;
   stats.forEach((s, i) => {
-    const x = pad + i * cellW + cellW / 2;
-    svgText(svg, x, yPos + 22, String(s.value),
+    const col = i % perRow;
+    const row = Math.floor(i / perRow);
+    const x = pad + col * cellW + cellW / 2;
+    const y = yPos + row * rowH;
+    svgText(svg, x, y + 22, String(s.value),
             { "font-size": 27, "font-weight": 800, fill: PALETTE[0], "text-anchor": "middle" });
-    let ly = yPos + 42;
+    let ly = y + 42;
     for (const line of wrapText(s.label, Math.floor(cellW / 6.2)).slice(0, 3)) {
       svgText(svg, x, ly, line, { "font-size": 11, fill: "#5f6774", "text-anchor": "middle" });
       ly += 14;

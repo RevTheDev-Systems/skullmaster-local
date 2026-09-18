@@ -24,7 +24,16 @@ PAUSE_SECONDS = 0.35
 
 
 class StudioError(Exception):
-    pass
+    """The model correctly reported the sources are unusable (not retryable)."""
+
+
+class ModelOutputError(ValueError):
+    """The model returned text that isn't the required shape — safe to retry.
+
+    Deliberately distinct from StudioError (the model *refused*) and from
+    infrastructure failures (provider/network/filesystem), so a retry loop only
+    ever absorbs malformed model output and never hides a real failure.
+    """
 
 
 # ---------- Script generation ----------
@@ -54,12 +63,36 @@ def _gather_context(notebook_id: str) -> str:
 
 
 def _extract_json(text: str) -> dict:
+    """Parse a single JSON object from model output; anything else is retryable."""
     text = strip_think(text).strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end <= start:
-        raise ValueError("no JSON object found in model output")
-    return json.loads(text[start : end + 1])
+        raise ModelOutputError("no JSON object found in model output")
+    try:
+        data = json.loads(text[start : end + 1])
+    except json.JSONDecodeError as e:
+        raise ModelOutputError(f"invalid JSON: {e}")
+    if not isinstance(data, dict):
+        raise ModelOutputError("model output must be a JSON object")
+    return data
+
+
+def _speaker_code(value) -> str | None:
+    """'a' -> 'A'; empty/missing/non-string -> None (never raises)."""
+    if not isinstance(value, str):
+        return None
+    code = value.strip().upper()
+    return code[-1] if code else None
+
+
+def _text(value) -> str | None:
+    """A short label for a graph node; objects/lists are ignored entirely."""
+    if isinstance(value, str):
+        return value.strip() or None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    return None
 
 
 def generate_script(notebook_id: str) -> dict:
@@ -73,18 +106,28 @@ def generate_script(notebook_id: str) -> dict:
     llm = get_llm()
     last_err = None
     for attempt in range(2):
-        raw = llm.chat(messages)
+        raw = llm.chat(messages)   # provider failures propagate — never retried here
         try:
             script = _extract_json(raw)
-            lines = [
-                {"speaker": l["speaker"].strip().upper()[-1], "text": l["text"].strip()}
-                for l in script["lines"]
-                if l.get("text", "").strip() and l.get("speaker", "").strip().upper()[-1] in ("A", "B")
-            ]
+            raw_lines = script.get("lines")
+            if not isinstance(raw_lines, list):
+                raise ModelOutputError("script.lines must be a list")
+            lines = []
+            for l in raw_lines:
+                if not isinstance(l, dict):
+                    continue
+                speaker, text = _speaker_code(l.get("speaker")), l.get("text")
+                if speaker in ("A", "B") and isinstance(text, str) and text.strip():
+                    lines.append({"speaker": speaker, "text": text.strip()})
             if len(lines) < 4:
-                raise ValueError("script too short")
-            return {"title": script.get("title", "Audio Overview"), "lines": lines}
-        except (ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
+                raise ModelOutputError("script needs at least 4 usable lines")
+            title = script.get("title")
+            return {
+                "title": title.strip() if isinstance(title, str) and title.strip()
+                         else "Audio Overview",
+                "lines": lines,
+            }
+        except ModelOutputError as e:
             last_err = e
             log.warning("Script parse failed (attempt %d): %s", attempt + 1, e)
             messages.append({"role": "assistant", "content": raw[:4000]})
@@ -157,20 +200,29 @@ ARTIFACT_PROMPTS = {
 
 
 def _validate_artifact_spec(kind: str, spec: dict) -> dict:
-    """Shape-check the model's JSON so the client renderer never sees garbage."""
+    """Shape-check the model's JSON so the client renderer never sees garbage.
+
+    Every malformed-structure case raises ModelOutputError (retryable); only a
+    model-authored refusal raises StudioError, and unknown kinds are a bug.
+    """
+    if not isinstance(spec, dict):
+        raise ModelOutputError("artifact spec must be a JSON object")
     if "error" in spec:
-        raise StudioError(spec["error"])
+        raise StudioError(str(spec["error"]))
     if not isinstance(spec.get("title"), str) or not spec["title"].strip():
-        raise ValueError("missing title")
+        raise ModelOutputError("missing title")
 
     if kind == "chart":
         if spec.get("type") not in ("bar", "line", "pie"):
-            raise ValueError("chart type must be bar, line, or pie")
+            raise ModelOutputError("chart type must be bar, line, or pie")
         labels, values = spec.get("labels"), spec.get("values")
         if (not isinstance(labels, list) or not isinstance(values, list)
                 or len(labels) != len(values) or not 2 <= len(labels) <= 12):
-            raise ValueError("labels/values must be equal-length lists (2-12)")
-        spec["values"] = [float(v) for v in values]
+            raise ModelOutputError("labels/values must be equal-length lists (2-12)")
+        try:
+            spec["values"] = [float(v) for v in values]
+        except (TypeError, ValueError) as e:
+            raise ModelOutputError(f"chart values must be numeric: {e}")
         spec["labels"] = [str(l) for l in labels]
         spec.setdefault("x_label", "")
         spec.setdefault("y_label", "")
@@ -178,31 +230,34 @@ def _validate_artifact_spec(kind: str, spec: dict) -> dict:
     elif kind == "infographic":
         stats, sections = spec.get("stats"), spec.get("sections")
         if not isinstance(stats, list) or not 1 <= len(stats) <= 6:
-            raise ValueError("stats must be a list of 1-6 entries")
+            raise ModelOutputError("stats must be a list of 1-6 entries")
         for s in stats:
             if not (isinstance(s, dict) and s.get("value") and s.get("label")):
-                raise ValueError("each stat needs value and label")
+                raise ModelOutputError("each stat needs value and label")
         if not isinstance(sections, list) or not sections:
-            raise ValueError("sections must be a non-empty list")
+            raise ModelOutputError("sections must be a non-empty list")
         for sec in sections:
             if not (isinstance(sec, dict) and sec.get("heading")
                     and isinstance(sec.get("points"), list) and sec["points"]):
-                raise ValueError("each section needs heading and points")
+                raise ModelOutputError("each section needs heading and points")
 
     elif kind == "mindgraph":
         root, branches = spec.get("root"), spec.get("branches")
         if not isinstance(root, str) or not root.strip():
-            raise ValueError("mind graph needs a root topic")
+            raise ModelOutputError("mind graph needs a root topic")
         if not isinstance(branches, list) or not 2 <= len(branches) <= 8:
-            raise ValueError("mind graph needs 2-8 branches")
+            raise ModelOutputError("mind graph needs 2-8 branches")
         labels = {root.strip()}
         clean_branches = []
         for b in branches:
             if not (isinstance(b, dict) and isinstance(b.get("label"), str) and b["label"].strip()):
-                raise ValueError("each branch needs a label")
-            children = [str(c).strip() for c in (b.get("children") or []) if str(c).strip()]
+                raise ModelOutputError("each branch needs a label")
+            kids = b.get("children")
+            if not isinstance(kids, list):
+                raise ModelOutputError(f"branch {b['label']!r} children must be a list")
+            children = [t for t in (_text(c) for c in kids) if t]
             if not children:
-                raise ValueError(f"branch {b['label']!r} has no children")
+                raise ModelOutputError(f"branch {b['label']!r} has no children")
             clean_branches.append({"label": b["label"].strip(), "children": children[:6]})
             labels.add(b["label"].strip())
             labels.update(children[:6])
@@ -223,9 +278,12 @@ def _validate_artifact_spec(kind: str, spec: dict) -> dict:
     elif kind == "spreadsheet":
         cols, rows = spec.get("columns"), spec.get("rows")
         if not isinstance(cols, list) or not cols:
-            raise ValueError("columns must be a non-empty list")
+            raise ModelOutputError("columns must be a non-empty list")
         if not isinstance(rows, list) or not 1 <= len(rows) <= 200:
-            raise ValueError("rows must be a list of 1-200 entries")
+            raise ModelOutputError("rows must be a list of 1-200 entries")
+        for r in rows:
+            if not isinstance(r, (list, tuple)):
+                raise ModelOutputError("each row must be a list")
         width = len(cols)
         spec["rows"] = [(list(r) + [""] * width)[:width] for r in rows]
 
@@ -253,7 +311,7 @@ def generate_artifact_spec(notebook_id: str, kind: str) -> dict:
             return _validate_artifact_spec(kind, _extract_json(raw))
         except StudioError:
             raise  # model correctly reported unusable sources — don't retry
-        except (ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
+        except ModelOutputError as e:
             last_err = e
             log.warning("Artifact spec parse failed (attempt %d): %s", attempt + 1, e)
             messages.append({"role": "assistant", "content": raw[:4000]})
@@ -264,13 +322,31 @@ def generate_artifact_spec(notebook_id: str, kind: str) -> dict:
     raise StudioError(f"Could not get a valid {kind} from the model: {last_err}")
 
 
+_EXCEL_ILLEGAL = re.compile(r"[\\/*?\[\]:]")
+_EXCEL_MAX_TITLE = 31
+
+
+def _safe_sheet_title(title: str) -> str:
+    """Normalize a title into an Excel-legal worksheet name.
+
+    Excel (and openpyxl) reject : / \\ * ? [ ] and names longer than 31 chars,
+    and require a non-empty name. A model-authored title must not turn into a
+    500 here, so illegal characters are normalized and a stable fallback used.
+    """
+    cleaned = _EXCEL_ILLEGAL.sub(" ", title or "")
+    cleaned = " ".join(cleaned.split())          # collapse runs of whitespace
+    cleaned = cleaned.strip("'").strip()
+    cleaned = cleaned[:_EXCEL_MAX_TITLE].strip().strip("'")
+    return cleaned or "Data"
+
+
 def write_xlsx(spec: dict, path) -> None:
     """Materialize a spreadsheet spec as a real .xlsx file."""
     from openpyxl import Workbook
     from openpyxl.styles import Font
     wb = Workbook()
     ws = wb.active
-    ws.title = spec["title"][:31] or "Data"
+    ws.title = _safe_sheet_title(spec["title"])
     ws.append(spec["columns"])
     for cell in ws[1]:
         cell.font = Font(bold=True)
