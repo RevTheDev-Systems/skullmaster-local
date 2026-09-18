@@ -767,3 +767,12 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 @app.get("/")
 def index():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    """Browsers request /favicon.ico directly; serve the app icon if present."""
+    icon = STATIC_DIR / "favicon.png"
+    if icon.exists():
+        return FileResponse(icon, media_type="image/png")
+    raise HTTPException(404, "No favicon configured")

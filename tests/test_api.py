@@ -247,3 +247,50 @@ def test_data_survives_client_restart(client, notebook):
         sources = fresh.get(f"/api/notebooks/{notebook['id']}/sources").json()
         assert len(sources) == 1 and sources[0]["status"] == "ready"
     assert len(store.notebook_chunks(notebook["id"])) == 1
+
+
+# ---------- acceptance journey (Phase 10) ----------
+
+def test_favicon_served(client):
+    res = client.get("/favicon.ico")
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("image/")
+
+
+def test_full_acceptance_journey(client, notebook):
+    """The browser journey end-to-end at the API layer: login is implied by the
+    authenticated client; ingest → chat+citations → artifacts/audio → delete →
+    restart → persistence."""
+    from fastapi.testclient import TestClient
+    from app import main as main_mod
+    from tests.conftest import TEST_PASSWORD
+
+    nb = notebook["id"]
+
+    # ingest, then ask a grounded question
+    src = _upload(client, nb).json()
+    assert src["status"] == "ready"
+    chat = client.post(f"/api/notebooks/{nb}/chat",
+                       json={"question": "How much do tickets cost?", "history": []})
+    assert "event: sources" in chat.text and "event: done" in chat.text
+
+    msgs = client.get(f"/api/notebooks/{nb}/messages").json()
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+    assert msgs[1]["status"] == "completed" and msgs[1]["citations"]
+
+    # studio: one visual, one text, one audio
+    chart = client.post(f"/api/notebooks/{nb}/artifacts", json={"kind": "chart"}).json()
+    briefing = client.post(f"/api/notebooks/{nb}/artifacts",
+                           json={"kind": "briefing"}).json()
+    audio = client.post(f"/api/notebooks/{nb}/audio-overview").json()
+    assert chart["kind"] == "chart" and briefing["kind"] == "briefing"
+    assert audio["url"].startswith("/api/audio/")
+
+    # delete a source, then restart and confirm everything persisted
+    assert client.delete(f"/api/notebooks/{nb}/sources/{src['id']}").json() == {"ok": True}
+    with TestClient(main_mod.app) as fresh:
+        fresh.post("/api/auth/login", json={"password": TEST_PASSWORD})
+        assert nb in [n["id"] for n in fresh.get("/api/notebooks").json()]
+        assert len(fresh.get(f"/api/notebooks/{nb}/messages").json()) == 2
+        assert len(fresh.get(f"/api/notebooks/{nb}/artifacts").json()) == 2
+        assert len(fresh.get(f"/api/notebooks/{nb}/audio-overviews").json()) == 1
