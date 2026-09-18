@@ -42,10 +42,13 @@ See `README.md` for usage and the architecture overview.
 
 ## Planned
 
+See `docs/roadmap.md` for the full post-v1 plan. Highlights:
+
 - **OCR** for scanned documents, applied only when a PDF's text layer is
   insufficient (never by default).
-- **Richer knowledge graph** — typed entities/relations and cross-notebook
-  research on top of the current evidence-bound nodes.
+- **Richer knowledge graph** and **cross-notebook research** on top of the
+  current evidence-bound nodes.
+- **Retrieval tuning** driven by the committed RAG benchmark.
 
 ## Out of scope
 
