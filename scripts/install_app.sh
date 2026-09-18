@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Build and install the "SkullMaster iQ" macOS app bundle into ~/Applications
 # so it appears in Launchpad / Spotlight / the Applications menu. Idempotent —
-# re-run after changing the icon or launcher. Requires the repo at ~/notebooklm-local.
+# re-run after changing the icon, the launcher, or the repo location.
 set -u
 
 REPO="${0:A:h:h}"                       # repo root (parent of scripts/)
@@ -32,9 +32,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-cat > "$APP/Contents/MacOS/SkullMaster iQ" <<'LAUNCH'
+# Bake in THIS repo's absolute path (resolved from the script location) rather
+# than a hardcoded ~/notebooklm-local, so the .app keeps working after the repo
+# is moved or renamed — just re-run this installer to update the pointer.
+cat > "$APP/Contents/MacOS/SkullMaster iQ" <<LAUNCH
 #!/bin/zsh
-exec "$HOME/notebooklm-local/scripts/launcher.sh"
+exec "$REPO/scripts/launcher.sh"
 LAUNCH
 chmod +x "$APP/Contents/MacOS/SkullMaster iQ"
 chmod +x "$REPO/scripts/launcher.sh"

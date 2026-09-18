@@ -6,7 +6,11 @@
 # of repeating hardcoded 127.0.0.1:8501 values.
 set -u
 
-PROJECT_DIR="$HOME/notebooklm-local"
+# Resolve the repo root without assuming a fixed absolute location:
+# `SKULLMASTER_HOME` overrides; otherwise use the parent of this script's own
+# directory. This lets the repo live anywhere (and be renamed) without editing.
+SCRIPT_DIR="${0:A:h}"
+PROJECT_DIR="${SKULLMASTER_HOME:-${SCRIPT_DIR:h}}"
 UV="/opt/homebrew/bin/uv"
 [[ -x "$UV" ]] || UV="$(command -v uv)"
 

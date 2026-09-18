@@ -306,6 +306,8 @@ See `docs/status.md` for the current implemented / experimental / planned /
 out-of-scope inventory. In short: the self-hosted local app is implemented and
 tested; OCR, richer cross-notebook knowledge graphs, and a fuller model
 capability router are planned; video/slides and web search are out of scope.
+The launcher and `.app` are location-independent; repository/brand identity and
+the explicit rename path are in `docs/naming.md`.
 
 ## Future work (intentionally out of scope)
 
