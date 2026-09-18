@@ -94,8 +94,20 @@ video/audio transcription. The first screen asks you to create a password (see
 
 `HOST`/`PORT` come from `.env` and are the single source of truth: the
 `python -m app` entry point, `scripts/launcher.sh`, and its health check all read
-them. `scripts/launcher.sh` starts the server if needed and opens the UI; on
-macOS, `scripts/install_app.sh` installs an app bundle into `~/Applications`.
+them.
+
+`scripts/launcher.sh` is **cross-platform (bash)**: it discovers `uv`, starts the
+server on the configured host/port if it isn't already running, and opens the UI
+with `open` (macOS) or `xdg-open` (Linux). Useful switches:
+
+| Variable | Effect |
+|---|---|
+| `SKULLMASTER_NO_OPEN=1` | start the server but don't open a browser |
+| `SKULLMASTER_DRY_RUN=1` | print the resolved project path and URL, then exit |
+| `SKULLMASTER_HOME=/path` | use a repo checkout at a different location |
+
+On macOS, `scripts/install_app.sh` installs an app bundle into `~/Applications`
+that runs the launcher.
 
 ## Signing in
 
