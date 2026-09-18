@@ -359,6 +359,47 @@ def _validate_artifact_spec(kind: str, spec: dict) -> dict:
     return spec
 
 
+def _words(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+def bind_evidence(notebook_id: str, spec: dict) -> dict:
+    """Bind each knowledge-graph node to its best-matching source chunk.
+
+    Sources → entity extraction (model) → evidence binding (here) → graph UI.
+    Prefers a chunk containing the label verbatim, else the highest token
+    overlap. Deterministic, and never invents a source: nodes with no support
+    are simply left unbound.
+    """
+    chunks = notebook_chunks(notebook_id)
+    labels = [spec["root"]]
+    for branch in spec["branches"]:
+        labels.append(branch["label"])
+        labels.extend(branch["children"])
+
+    evidence: dict[str, dict] = {}
+    for label in labels:
+        needle = label.lower()
+        label_words = _words(label)
+        best, best_score = None, 0.0
+        for chunk in chunks:
+            text = chunk["text"]
+            overlap = label_words & _words(text)
+            if needle in text.lower():
+                score = 2.0 + len(overlap) / max(1, len(label_words))
+            else:
+                score = len(overlap) / max(1, len(label_words))
+            if score > best_score:
+                best, best_score = chunk, score
+        if best is not None and best_score > 0:
+            evidence[label] = {
+                "source": best["source_name"],
+                "page": best["page"],
+                "snippet": best["text"][:200],
+            }
+    return evidence
+
+
 def generate_artifact_spec(notebook_id: str, kind: str) -> dict:
     """Grounded artifact spec via the LLM, validated; one retry on bad shape."""
     if kind not in ARTIFACT_PROMPTS:
@@ -373,7 +414,12 @@ def generate_artifact_spec(notebook_id: str, kind: str) -> dict:
     for attempt in range(2):
         raw = llm.chat(messages)
         try:
-            return _validate_artifact_spec(kind, _extract_json(raw))
+            spec = _validate_artifact_spec(kind, _extract_json(raw))
+            if kind == "mindgraph":
+                # Bind every node to source evidence (visualization stays, but
+                # the graph becomes navigable and source-grounded).
+                spec["evidence"] = bind_evidence(notebook_id, spec)
+            return spec
         except StudioError:
             raise  # model correctly reported unusable sources — don't retry
         except ModelOutputError as e:

@@ -379,6 +379,10 @@ button:focus-visible, .btn:focus-visible, select:focus-visible, input:focus-visi
 .art-timeline { list-style: none; padding-left: 0; }
 .art-timeline li { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--border); }
 .art-timeline .art-time { min-width: 92px; font-weight: 700; color: var(--accent); }
+.art-evidence { max-width: 720px; margin: 16px auto 0; text-align: left; }
+.art-evidence h3 { margin: 0 0 6px; font-size: 14px; }
+.art-evidence ul { margin: 0; padding-left: 18px; }
+.art-evidence li { margin: 3px 0; font-size: 12.5px; color: var(--muted); }
 
 @media (max-width: 720px) {
   .app-shell { padding: 14px 14px 96px; }

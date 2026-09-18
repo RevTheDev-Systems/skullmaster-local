@@ -1154,6 +1154,28 @@ function renderSourceSummary(spec) {
   return root;
 }
 
+function renderEvidence(evidence) {
+  const wrap = document.createElement("div");
+  wrap.className = "art-evidence";
+  const h = document.createElement("h3");
+  h.textContent = "Evidence";
+  wrap.appendChild(h);
+  const ul = document.createElement("ul");
+  for (const [label, ev] of Object.entries(evidence)) {
+    const li = document.createElement("li");
+    const term = document.createElement("strong");
+    term.textContent = label;
+    const where = document.createElement("span");
+    where.textContent = ev.page != null
+      ? ` — ${ev.source} — page ${ev.page}`
+      : ` — ${ev.source}`;
+    li.append(term, where);
+    ul.appendChild(li);
+  }
+  wrap.appendChild(ul);
+  return wrap;
+}
+
 function artifactToMarkdown(kind, spec) {
   const lines = [`# ${spec.title}`, ""];
   if (kind === "briefing") {
@@ -1207,6 +1229,10 @@ function showArtifact(a) {
     dl.addEventListener("click", () => downloadBlob(
       new XMLSerializer().serializeToString(svg), `${slug(a.title)}.svg`, "image/svg+xml"));
     actions.appendChild(dl);
+    if (a.kind === "mindgraph" && a.spec.evidence
+        && Object.keys(a.spec.evidence).length) {
+      body.appendChild(renderEvidence(a.spec.evidence));
+    }
   } else if (a.kind === "spreadsheet") {
     const table = document.createElement("table");
     const thead = table.createTHead().insertRow();

@@ -4,6 +4,7 @@ Hard rules:
 - Every node must come from the source material. Never invent concepts, and never add general background knowledge the sources don't state.
 - The root is the notebook's actual subject, not a generic word like "Overview" or "Notes".
 - Branches are the major themes; children are the specific ideas, findings, entities, or steps that belong to them.
+- Reuse the exact names, numbers, and terms from the sources for node labels so each node can be traced back to the evidence it came from.
 - Use "links" for meaningful relationships that cross branches (a cause, a dependency, a contrast, a supports/contradicts pair). Only add a link when the sources actually connect those two nodes. It is fine to return an empty list.
 - Link endpoints must exactly match node labels you used elsewhere in the graph.
 - If the sources are too thin to map, output exactly: {"error": "The sources do not contain enough material for a mind graph."}

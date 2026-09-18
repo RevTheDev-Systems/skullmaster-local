@@ -432,3 +432,34 @@ def test_text_artifact_generation(monkeypatch, kind, spec):
 def test_text_artifact_validation_rejects_bad_shapes(kind, bad):
     with pytest.raises(studio.ModelOutputError):
         studio._validate_artifact_spec(kind, bad)
+
+
+# ---------- Phase 9: source-grounded knowledge graph ----------
+
+def test_mindgraph_nodes_bind_to_source_evidence(client, notebook):
+    _upload(client, notebook["id"], "geo.txt",
+            b"The Meridian Array sits in the Atacama Desert and outputs 1.2 GW. "
+            b"The site covers 14 km2 and cost $940M to build.", "text/plain")
+    art = client.post(f"/api/notebooks/{notebook['id']}/artifacts",
+                      json={"kind": "mindgraph"}).json()
+    evidence = art["spec"]["evidence"]
+    assert "Meridian Array" in evidence
+    assert evidence["Meridian Array"]["source"] == "geo.txt"
+    assert "Atacama Desert" in evidence
+    for entry in evidence.values():
+        assert entry["source"] and entry["snippet"]
+
+
+def test_evidence_binding_leaves_unsupported_nodes_unbound(monkeypatch):
+    from app import studio as st
+
+    monkeypatch.setattr(st, "notebook_chunks", lambda nb: [
+        {"source_name": "s.txt", "page": None, "seq": 0,
+         "text": "The Meridian Array outputs power."},
+    ])
+    spec = {"root": "Meridian Array", "branches": [
+        {"label": "Governance", "children": ["Budget"]}]}
+    evidence = st.bind_evidence("nb", spec)
+    assert "Meridian Array" in evidence          # verbatim match
+    assert "Governance" not in evidence          # no support -> unbound
+    assert "Budget" not in evidence
