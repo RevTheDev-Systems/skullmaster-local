@@ -1,4 +1,7 @@
 """Authentication: first-run setup, login, session guard, throttling, sign-out."""
+import time
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from app import auth, db
@@ -119,9 +122,79 @@ def test_only_token_hash_is_persisted(client):
 
 
 def test_expired_session_rejected(client):
-    from datetime import datetime, timedelta, timezone
     token = client.cookies.get(auth.COOKIE_NAME)
     past = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
     db.create_session(auth._hash_token(token), past)
     assert auth.validate_session(token) is False
+    assert client.get("/api/notebooks").status_code == 401
+
+
+# ---------- session expiry: timestamps, not strings ----------
+
+def test_session_expiry_compares_aware_datetimes(client):
+    """Regression: ISO strings compared lexicographically mis-order timestamps
+    that differ only by microseconds."""
+    now = datetime.now(timezone.utc)
+    for delta, expected in [(timedelta(seconds=1), True),
+                            (timedelta(microseconds=-1), False),
+                            (timedelta(0), False)]:
+        token = f"boundary-{delta}"
+        db.create_session(auth._hash_token(token), (now + delta).isoformat())
+        assert auth.validate_session(token) is expected, delta
+
+
+def test_naive_session_timestamp_is_treated_as_utc(client):
+    future = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1)
+    token = "naive-future"
+    db.create_session(auth._hash_token(token), future.isoformat())
+    assert auth.validate_session(token) is True
+
+
+def test_malformed_session_timestamp_fails_closed(client):
+    token = "malformed"
+    db.create_session(auth._hash_token(token), "not-a-timestamp")
+    assert auth.validate_session(token) is False
+    assert db.get_session(auth._hash_token(token)) is None   # dead row removed
+
+
+def test_purge_removes_expired_and_malformed_only(client):
+    now = datetime.now(timezone.utc)
+    db.create_session(auth._hash_token("expired"),
+                      (now - timedelta(seconds=1)).isoformat())
+    db.create_session(auth._hash_token("malformed"), "garbage")
+    db.create_session(auth._hash_token("valid"),
+                      (now + timedelta(days=1)).isoformat())
+    db.purge_expired_sessions(now)
+    assert db.get_session(auth._hash_token("expired")) is None
+    assert db.get_session(auth._hash_token("malformed")) is None
+    assert db.get_session(auth._hash_token("valid")) is not None
+
+
+def test_lockout_expires(client):
+    client.cookies.clear()
+    for _ in range(auth.MAX_FAILED_ATTEMPTS):
+        assert client.post("/api/auth/login", json={"password": "nope"}).status_code == 401
+    assert client.post("/api/auth/login",
+                       json={"password": TEST_PASSWORD}).status_code == 429
+
+    key = next(iter(auth._failures))                 # request.client.host
+    auth._failures[key] = (0, time.time() - 1)       # lockout window elapsed
+    assert auth.seconds_until_unlocked(key) == 0
+    assert client.post("/api/auth/login",
+                       json={"password": TEST_PASSWORD}).status_code == 200
+
+
+def test_session_survives_server_restart(client):
+    from fastapi.testclient import TestClient
+    from app import main as main_mod
+
+    token = client.cookies.get(auth.COOKIE_NAME)
+    assert token
+    with TestClient(main_mod.app) as fresh:
+        fresh.cookies.set(auth.COOKIE_NAME, token)
+        assert fresh.get("/api/notebooks").status_code == 200
+
+
+def test_stale_cookie_is_rejected(client):
+    client.cookies.set(auth.COOKIE_NAME, "stale-not-a-real-token")
     assert client.get("/api/notebooks").status_code == 401

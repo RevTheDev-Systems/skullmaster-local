@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS messages (
     role TEXT NOT NULL,          -- user | assistant
     content TEXT NOT NULL,
     citations TEXT,              -- JSON list of retrieved excerpts (assistant only)
+    status TEXT NOT NULL DEFAULT 'completed',  -- progress of a turn
+    error TEXT,                  -- failure reason when status = interrupted
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS audio_overviews (
@@ -74,6 +76,11 @@ SOURCE_MIGRATIONS = {
     "stored_path": "ALTER TABLE sources ADD COLUMN stored_path TEXT",
 }
 
+MESSAGE_MIGRATIONS = {
+    "status": "ALTER TABLE messages ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'",
+    "error": "ALTER TABLE messages ADD COLUMN error TEXT",
+}
+
 
 @contextmanager
 def conn():
@@ -90,14 +97,34 @@ def conn():
 def init_db():
     with conn() as c:
         c.executescript(SCHEMA)
-        existing = {r["name"] for r in c.execute("PRAGMA table_info(sources)")}
-        for col, ddl in SOURCE_MIGRATIONS.items():
-            if col not in existing:
-                c.execute(ddl)
+        for table, migrations in (("sources", SOURCE_MIGRATIONS),
+                                  ("messages", MESSAGE_MIGRATIONS)):
+            existing = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
+            for col, ddl in migrations.items():
+                if col not in existing:
+                    c.execute(ddl)
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def parse_timestamp(value: str | None) -> datetime | None:
+    """Parse a stored ISO-8601 timestamp into an aware UTC datetime.
+
+    Returns None for missing or malformed values so callers can fail closed
+    (never raise, never compare timestamps as strings). Naive values are
+    assumed to be UTC, matching how they were written.
+    """
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def create_notebook(name: str) -> dict:
@@ -202,22 +229,35 @@ def delete_source(source_id: str):
 # ---------- Chat messages ----------
 
 def add_message(notebook_id: str, role: str, content: str,
-                citations: str | None = None) -> dict:
+                citations: str | None = None, *,
+                status: str = "completed", error: str | None = None) -> dict:
+    """Insert one message. Assistant turns may start as pending/streaming and be
+    finalized later, so an interrupted turn is preserved rather than lost."""
     msg = {
         "id": uuid.uuid4().hex[:12],
         "notebook_id": notebook_id,
         "role": role,
         "content": content,
         "citations": citations,
+        "status": status,
+        "error": error,
         "created_at": _now(),
     }
     with conn() as c:
         c.execute(
-            "INSERT INTO messages VALUES (:id, :notebook_id, :role, :content,"
-            " :citations, :created_at)",
+            "INSERT INTO messages (id, notebook_id, role, content, citations,"
+            " status, error, created_at) VALUES (:id, :notebook_id, :role,"
+            " :content, :citations, :status, :error, :created_at)",
             msg,
         )
     return msg
+
+
+def update_message(message_id: str, **fields):
+    assign = ", ".join(f"{k} = :{k}" for k in fields)
+    with conn() as c:
+        c.execute(f"UPDATE messages SET {assign} WHERE id = :id",
+                  {**fields, "id": message_id})
 
 
 def list_messages(notebook_id: str) -> list[dict]:
@@ -324,9 +364,19 @@ def delete_all_sessions():
         c.execute("DELETE FROM sessions")
 
 
-def purge_expired_sessions(now_iso: str):
+def purge_expired_sessions(cutoff: datetime):
+    """Delete sessions expiring at/before `cutoff`, plus malformed records.
+
+    Parses each stored timestamp instead of comparing strings, so records with
+    different ISO formatting expiry can't slip through or be purged wrongly.
+    """
     with conn() as c:
-        c.execute("DELETE FROM sessions WHERE expires_at <= ?", (now_iso,))
+        rows = c.execute("SELECT token_hash, expires_at FROM sessions").fetchall()
+        for row in rows:
+            expires = parse_timestamp(row["expires_at"])
+            if expires is None or expires <= cutoff:
+                c.execute("DELETE FROM sessions WHERE token_hash = ?",
+                          (row["token_hash"],))
 
 
 # ---------- Studio artifacts ----------

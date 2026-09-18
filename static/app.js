@@ -487,6 +487,15 @@ async function loadMessages() {
     if (m.role === "assistant" && m.citations.length) {
       renderWithCitations(el, m.content, m.citations);
     }
+    if (m.role === "assistant" && m.status && m.status !== "completed") {
+      el.classList.add("interrupted");
+      const note = document.createElement("div");
+      note.className = "msg-note";
+      note.textContent = m.content
+        ? "Interrupted — this answer may be incomplete."
+        : "Interrupted before an answer was produced.";
+      el.appendChild(note);
+    }
     state.history.push({ role: m.role, content: m.content });
   }
   $("#messages").scrollTop = $("#messages").scrollHeight;

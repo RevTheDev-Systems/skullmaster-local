@@ -23,6 +23,13 @@ SESSION_DAYS = 14
 MIN_PASSWORD_LENGTH = 8
 
 # OWASP-recommended work factor; lowered only by the test suite for speed.
+#
+# Review (local/offline threat model, Phase 4): 600k PBKDF2-HMAC-SHA256 is a
+# deliberate, current work factor. The only attacker who benefits from raising
+# it is one who already holds the database file — i.e. one who already has this
+# machine's filesystem — so the incremental gain is small, while changing the
+# derivation would invalidate every existing password. Keep as-is; the count is
+# stored per hash, so it can be raised later without a forced migration.
 PBKDF2_ITERATIONS = int(os.environ.get("SM_PBKDF2_ITERATIONS", "600000"))
 
 # Login throttling (per process — this is a single-user localhost app).
@@ -97,9 +104,10 @@ def _hash_token(token: str) -> str:
 def create_session() -> str:
     """Issue a new session token (the raw value is returned only once, for the cookie)."""
     token = secrets.token_urlsafe(32)
-    expires = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(days=SESSION_DAYS)
     db.create_session(_hash_token(token), expires.isoformat())
-    db.purge_expired_sessions(datetime.now(timezone.utc).isoformat())
+    db.purge_expired_sessions(now)
     return token
 
 
@@ -109,7 +117,11 @@ def validate_session(token: str | None) -> bool:
     row = db.get_session(_hash_token(token))
     if not row:
         return False
-    if row["expires_at"] <= datetime.now(timezone.utc).isoformat():
+    expires = db.parse_timestamp(row["expires_at"])
+    # Compare timezone-aware datetimes, not ISO strings: lexicographic order is
+    # wrong when two timestamps differ only in the presence of microseconds.
+    # A malformed timestamp fails closed and its dead row is removed.
+    if expires is None or expires <= datetime.now(timezone.utc):
         db.delete_session(row["token_hash"])
         return False
     return True

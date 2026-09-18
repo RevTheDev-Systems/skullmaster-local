@@ -512,6 +512,8 @@ def messages_list(notebook_id: str):
             "role": m["role"],
             "content": m["content"],
             "citations": json.loads(m["citations"]) if m["citations"] else [],
+            "status": m.get("status", "completed"),
+            "error": m.get("error"),
         })
     return out
 
@@ -529,42 +531,74 @@ def chat(notebook_id: str, body: ChatIn):
     if not db.get_notebook(notebook_id):
         raise HTTPException(404, "Notebook not found")
 
-    chunks, tokens = answer_stream(notebook_id, body.question, body.history)
+    # Persist the turn *before* generating: an interrupted answer (client
+    # disconnect, model failure) stays in history as `interrupted` rather than
+    # vanishing, and a partial answer is never mistaken for a complete one.
+    db.add_message(notebook_id, "user", body.question)
+    assistant = db.add_message(notebook_id, "assistant", "", status="pending")
+
+    try:
+        chunks, tokens = answer_stream(notebook_id, body.question, body.history)
+    except Exception as e:
+        log.exception("Retrieval failed for notebook %s", notebook_id)
+        db.update_message(assistant["id"], status="interrupted",
+                          error=f"Retrieval failed: {e}")
+        raise HTTPException(503, "Could not retrieve sources for this question")
+
+    sources_payload = [
+        {
+            "n": i + 1,
+            "source_id": c["source_id"],
+            "source_name": c["source_name"],
+            "kind": c.get("kind", "text"),
+            "page": c["page"],
+            "text": c["text"],
+        }
+        for i, c in enumerate(chunks)
+    ]
 
     def sse():
-        # 1) send retrieved excerpts so the client can resolve [n] citations
-        sources_payload = [
-            {
-                "n": i + 1,
-                "source_id": c["source_id"],
-                "source_name": c["source_name"],
-                "kind": c.get("kind", "text"),
-                "page": c["page"],
-                "text": c["text"],
-            }
-            for i, c in enumerate(chunks)
-        ]
-        yield f"event: sources\ndata: {json.dumps(sources_payload)}\n\n"
-
-        # 2) stream tokens, accumulating for final citation validation
         full = ""
+        finalized = False
+
+        def finalize(status: str, content: str, citations: str | None = None,
+                     error: str | None = None):
+            nonlocal finalized
+            if finalized:
+                return
+            finalized = True
+            try:
+                db.update_message(assistant["id"], content=content, status=status,
+                                  citations=citations, error=error)
+            except Exception:
+                log.exception("Could not finalize message %s", assistant["id"])
+
         try:
-            for tok in tokens:
-                full += tok
-                yield f"event: token\ndata: {json.dumps(tok)}\n\n"
-        except Exception as e:
-            log.exception("Chat stream failed")
-            yield f"event: error\ndata: {json.dumps(f'Model error: {e}')}\n\n"
-            return
+            try:
+                db.update_message(assistant["id"], status="streaming")
+                # 1) send retrieved excerpts so the client can resolve [n] citations
+                yield f"event: sources\ndata: {json.dumps(sources_payload)}\n\n"
 
-        # 3) send the validated final text (invalid citation markers removed)
-        cleaned = strip_invalid_citations(full, len(chunks))
-        yield f"event: done\ndata: {json.dumps(cleaned)}\n\n"
+                # 2) stream tokens, accumulating for final citation validation
+                for tok in tokens:
+                    full += tok
+                    yield f"event: token\ndata: {json.dumps(tok)}\n\n"
+            except GeneratorExit:
+                finalize("interrupted", full)   # client went away mid-answer
+                raise
+            except Exception as e:
+                log.exception("Chat stream failed")
+                yield f"event: error\ndata: {json.dumps(f'Model error: {e}')}\n\n"
+                finalize("interrupted", full, error=f"Model error: {e}")
+                return
 
-        # 4) persist the exchange so chat survives refresh/restart
-        db.add_message(notebook_id, "user", body.question)
-        db.add_message(notebook_id, "assistant", cleaned,
-                       citations=json.dumps(sources_payload))
+            # 3) validate citations, persist the completed turn, then signal done
+            cleaned = strip_invalid_citations(full, len(chunks))
+            finalize("completed", cleaned, json.dumps(sources_payload))
+            yield f"event: done\ndata: {json.dumps(cleaned)}\n\n"
+        finally:
+            # Covers a close before/around the first yield.
+            finalize("interrupted", full)
 
     return StreamingResponse(sse(), media_type="text/event-stream")
 

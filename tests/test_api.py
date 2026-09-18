@@ -2,7 +2,7 @@
 mock LLM/TTS providers (final acceptance against real models is run separately)."""
 import io
 
-from app import db, store
+from app import db, main, store
 from app.config import AUDIO_DIR, UPLOADS_DIR
 
 TXT = b"The zephyr wombat festival happens every March. Tickets cost 42 tugrik."
@@ -116,10 +116,49 @@ def test_chat_streams_and_persists(client, notebook):
 
     msgs = client.get(f"/api/notebooks/{notebook['id']}/messages").json()
     assert [m["role"] for m in msgs] == ["user", "assistant"]
+    assert msgs[0]["status"] == "completed"
+    assert msgs[1]["status"] == "completed"
     assert msgs[1]["citations"][0]["n"] == 1
 
     client.delete(f"/api/notebooks/{notebook['id']}/messages")
     assert client.get(f"/api/notebooks/{notebook['id']}/messages").json() == []
+
+
+def test_chat_model_failure_keeps_turn_as_interrupted(client, notebook, monkeypatch):
+    _upload(client, notebook["id"])
+
+    def fake_answer(nb_id, question, history):
+        def tokens():
+            yield "Partial answer"
+            raise RuntimeError("model crashed")
+        return [], tokens()
+
+    monkeypatch.setattr(main, "answer_stream", fake_answer)
+    res = client.post(f"/api/notebooks/{notebook['id']}/chat",
+                      json={"question": "q", "history": []})
+    assert "event: error" in res.text
+
+    msgs = client.get(f"/api/notebooks/{notebook['id']}/messages").json()
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+    assert msgs[1]["status"] == "interrupted"
+    assert msgs[1]["content"] == "Partial answer"          # partial kept, not lost
+    assert "model crashed" in (msgs[1]["error"] or "")
+    assert msgs[1]["citations"] == []
+
+
+def test_chat_retrieval_failure_keeps_turn_as_interrupted(client, notebook, monkeypatch):
+    def boom(nb_id, question, history):
+        raise RuntimeError("embedding backend down")
+
+    monkeypatch.setattr(main, "answer_stream", boom)
+    res = client.post(f"/api/notebooks/{notebook['id']}/chat",
+                      json={"question": "q", "history": []})
+    assert res.status_code == 503
+
+    msgs = client.get(f"/api/notebooks/{notebook['id']}/messages").json()
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+    assert msgs[1]["status"] == "interrupted"
+    assert "embedding backend down" in (msgs[1]["error"] or "")
 
 
 def test_chat_empty_notebook_declines(client, notebook):
