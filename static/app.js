@@ -1416,6 +1416,90 @@ for (const btn of document.querySelectorAll(".artifact-buttons button")) {
   });
 }
 
+// ---------- Library search ----------
+function closeSearch() {
+  $("#search-backdrop").hidden = true;
+}
+$("#library-search").addEventListener("click", () => {
+  $("#search-backdrop").hidden = false;
+  $("#search-input").focus();
+  $("#search-input").select();
+});
+$("#search-close").addEventListener("click", closeSearch);
+$("#search-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "search-backdrop") closeSearch();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#search-backdrop").hidden) closeSearch();
+});
+
+function renderSearch(data) {
+  const box = $("#search-results");
+  box.innerHTML = "";
+  if (!data.results.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = `No matches for “${data.query}”.`;
+    box.appendChild(empty);
+    return;
+  }
+  const byNotebook = new Map();
+  for (const result of data.results) {
+    const key = result.notebook_name || result.notebook_id;
+    if (!byNotebook.has(key)) byNotebook.set(key, []);
+    byNotebook.get(key).push(result);
+  }
+  for (const [name, hits] of byNotebook) {
+    const heading = document.createElement("div");
+    heading.className = "search-notebook";
+    heading.textContent = `${name} · ${hits.length}`;
+    box.appendChild(heading);
+    for (const hit of hits) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "search-hit";
+      const where = document.createElement("span");
+      where.className = "search-where";
+      const isMedia = hit.kind === "video" || hit.kind === "audio";
+      where.textContent = isMedia && hit.page != null
+        ? `${hit.source_name} — at ${fmtTime(hit.page)}`
+        : hit.page ? `${hit.source_name} — page ${hit.page}` : hit.source_name;
+      const snippet = document.createElement("span");
+      snippet.className = "search-snippet";
+      snippet.textContent = hit.text.slice(0, 200);
+      btn.append(where, snippet);
+      btn.addEventListener("click", async () => {
+        closeSearch();
+        if (hit.notebook_id && hit.notebook_id !== state.current) {
+          state.current = hit.notebook_id;
+          const sel = $("#nb-select");
+          if (sel) sel.value = hit.notebook_id;
+          await openNotebook().catch((err) => toast(err.message));
+        }
+        showCitation(hit);
+      });
+      box.appendChild(btn);
+    }
+  }
+}
+
+$("#search-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const q = $("#search-input").value.trim();
+  if (!q) return;
+  const box = $("#search-results");
+  box.innerHTML = '<p class="muted">Searching…</p>';
+  try {
+    renderSearch(await api(`/api/search?q=${encodeURIComponent(q)}&k=12`));
+  } catch (err) {
+    box.innerHTML = "";
+    const problem = document.createElement("p");
+    problem.className = "muted";
+    problem.textContent = err.message;
+    box.appendChild(problem);
+  }
+});
+
 // ---------- Init ----------
 (async () => {
   await loadModels();

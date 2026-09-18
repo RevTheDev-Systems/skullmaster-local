@@ -18,6 +18,7 @@ URL, sign in with the owner password).
 | 6 | Ask a question | streamed answer with clickable `[n]` chips | automated (API) · browser manual |
 | 6b | Enable **All notebooks**, ask | answer across the library, citations name the notebook | automated (`/api/research`) · browser manual |
 | 6c | Landing page: **Create account** ↔ **Return to logon** | switches between setup and sign-in | automated (`test_auth`) · browser manual |
+| 6d | **🔍 Search** library, open a hit | results grouped by notebook; opens the passage and switches notebook | automated (`/api/search`) · browser manual |
 | 7 | Click a citation | passage/page/“Play from mm:ss” | automated (payload) · browser manual |
 | 8 | Switch model in header | active model persists across restart | automated (models) · browser manual |
 | 9 | Audio Overview | 2-host WAV generated + player | automated (API) · browser manual |

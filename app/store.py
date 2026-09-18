@@ -75,6 +75,13 @@ def _notebook_rows(notebook_id: str) -> list[dict]:
     return tbl.search().where(f"notebook_id = '{notebook_id}'").limit(100_000).to_list()
 
 
+def _all_rows() -> list[dict]:
+    tbl = _table()
+    if tbl is None:
+        return []
+    return tbl.search().limit(100_000).to_list()
+
+
 def notebook_chunks(notebook_id: str) -> list[dict]:
     """All chunks for a notebook (used by Studio artifact generation)."""
     return [
@@ -233,3 +240,45 @@ def hybrid_search_many(
     rest.sort(key=lambda e: e["score"], reverse=True)
     selected.extend(rest)
     return [_result(e["row"], with_notebook=True) for e in selected[:k]]
+
+
+def search_library(
+    query: str,
+    k: int = TOP_K,
+    llm=None,
+    *,
+    vector_weight: float = RRF_VECTOR_WEIGHT,
+    bm25_weight: float = RRF_BM25_WEIGHT,
+) -> list[dict]:
+    """Semantic + keyword search across every notebook.
+
+    Unlike `hybrid_search_many` (which ranks per notebook), this searches the
+    whole chunk index at once, so the strongest passages surface regardless of
+    which notebook they live in. Results carry `notebook_id`.
+    """
+    llm = llm or get_llm()
+    tbl = _table()
+    if tbl is None:
+        return []
+    qvec = llm.embed([query])[0]
+    vector_hits = tbl.search(qvec).limit(VECTOR_CANDIDATES).to_list()
+
+    all_rows = _all_rows()
+    if not all_rows:
+        return []
+    bm25 = BM25Okapi([_tokenize(r["text"]) for r in all_rows])
+    scores = bm25.get_scores(_tokenize(query))
+    bm25_ranked = sorted(zip(all_rows, scores), key=lambda p: p[1], reverse=True)
+    bm25_hits = [r for r, s in bm25_ranked[:VECTOR_CANDIDATES] if s > 0]
+
+    fused: dict[str, dict] = {}
+    RRF_K = 60
+    for rank, row in enumerate(vector_hits):
+        entry = fused.setdefault(row["id"], {"row": row, "score": 0.0})
+        entry["score"] += vector_weight / (RRF_K + rank + 1)
+    for rank, row in enumerate(bm25_hits):
+        entry = fused.setdefault(row["id"], {"row": row, "score": 0.0})
+        entry["score"] += bm25_weight / (RRF_K + rank + 1)
+
+    ordered = sorted(fused.values(), key=lambda e: e["score"], reverse=True)[:k]
+    return [_result(e["row"], with_notebook=True) for e in ordered]

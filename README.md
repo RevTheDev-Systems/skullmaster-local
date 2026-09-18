@@ -11,6 +11,7 @@ via [Ollama](https://ollama.com). No cloud APIs, no telemetry, no tracking.
 - **Scanned PDFs (optional OCR)** — if a PDF has no text layer and Tesseract is installed, its pages are OCR'd into the normal pipeline; text PDFs are never OCR'd, and without an engine the app behaves as before
 - **Closed-world RAG chat** — answers come ONLY from your sources; off-corpus questions are declined instead of hallucinated
 - **Cross-notebook research** — flip on **All notebooks** in the chat bar to answer across your whole library; retrieval is merged with a diversity pass so one notebook can't dominate, and citations name the notebook they came from (research answers are transient, not saved to a notebook)
+- **Library search** — 🔍 Search every notebook at once (semantic + keyword); results are grouped by notebook and open the exact passage, jumping to that notebook
 - **Inline citations** — every claim carries a clickable `[n]` chip that opens the exact source passage (with page numbers for PDFs, timestamps for media)
 - **Audio Overview** — a two-host podcast conversation about your sources, synthesized with a local TTS model, playable and downloadable in the UI
 - **Grounded documents** — Studio also writes a **briefing document, study guide, FAQ, timeline, and source summary** from your sources, each downloadable as Markdown; like every generator, they must cite the sources or refuse
@@ -245,7 +246,7 @@ app/
                    hardened URL fetch; failures normalized to IngestError
   ocr.py           optional Tesseract OCR for text-less PDF pages (never default)
   chunker.py       paragraph-packing chunker (~800 tok, overlap), page metadata
-  store.py         LanceDB vector store + BM25, reciprocal-rank-fusion hybrid search
+  store.py         LanceDB vector store + BM25, RRF hybrid search, library search
   rag.py           retrieval → grounded prompt → streamed cited answer; research
   studio.py        podcast + all grounded artifacts (visual and text) + evidence binding
   evaluation.py    deterministic RAG benchmark (python -m app.evaluation)

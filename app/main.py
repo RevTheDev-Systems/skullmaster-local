@@ -373,6 +373,45 @@ def notebooks_list():
     return db.list_notebooks()
 
 
+@app.get("/api/search")
+def library_search(q: str = "", k: int = 8):
+    """Search across every notebook, returning matching passages + notebooks."""
+    query = q.strip()
+    if not query:
+        raise HTTPException(400, "Search query is required")
+    limit = max(1, min(k, 25))
+    try:
+        chunks = store.search_library(query, k=limit)
+    except Exception as e:
+        log.exception("Library search failed")
+        raise HTTPException(503, f"Search failed: {e}")
+
+    notebooks = db.list_notebooks()
+    names = {n["id"]: n["name"] for n in notebooks}
+    kinds = {s["id"]: s["kind"] for n in notebooks for s in db.list_sources(n["id"])}
+
+    results = []
+    grouped: dict[str, dict] = {}
+    for c in chunks:
+        nb_id = c.get("notebook_id") or ""
+        name = names.get(nb_id, nb_id)
+        results.append(
+            {
+                "source_id": c["source_id"],
+                "source_name": c["source_name"],
+                "notebook_id": nb_id,
+                "notebook_name": name,
+                "kind": kinds.get(c["source_id"], "text"),
+                "page": c["page"],
+                "text": c["text"],
+            }
+        )
+        entry = grouped.setdefault(nb_id, {"notebook_id": nb_id, "name": name, "matches": 0})
+        entry["matches"] += 1
+    ranked = sorted(grouped.values(), key=lambda n: n["matches"], reverse=True)
+    return {"query": query, "notebooks": ranked, "results": results}
+
+
 @app.post("/api/notebooks")
 def notebooks_create(body: NotebookIn):
     name = body.name.strip()

@@ -64,7 +64,7 @@ button { cursor: pointer; }
   gap: 18px;
 }
 
-.topbar, .panel, #modal, #media-modal, #artifact-modal, .mobile-nav {
+.topbar, .panel, #modal, #media-modal, #artifact-modal, #search-modal, .mobile-nav {
   background: var(--panel);
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
@@ -303,7 +303,7 @@ button:focus-visible, .btn:focus-visible, select:focus-visible, input:focus-visi
   display: flex; align-items: center; justify-content: center;
   padding: 18px;
 }
-#modal, #media-modal, #artifact-modal {
+#modal, #media-modal, #artifact-modal, #search-modal {
   width: min(880px, 100%);
   max-height: min(88vh, 860px);
   border-radius: 24px;
@@ -316,7 +316,7 @@ button:focus-visible, .btn:focus-visible, select:focus-visible, input:focus-visi
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   font-weight: 700;
 }
-#modal-close, #media-close, #artifact-close {
+#modal-close, #media-close, #artifact-close, #search-close {
   background: transparent; border: none; color: var(--muted); padding: 7px 9px;
 }
 #modal-body, #artifact-body { padding: 18px; overflow: auto; }
@@ -332,6 +332,25 @@ button:focus-visible, .btn:focus-visible, select:focus-visible, input:focus-visi
 #artifact-body th, #artifact-body td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; }
 #artifact-body th { background: var(--panel-3); }
 #artifact-body .source-note { margin-top: 12px; color: var(--muted); font-size: 0.84rem; }
+
+/* Library search modal */
+#search-form { display: flex; gap: 10px; padding: 14px 18px 0; }
+#search-input {
+  flex: 1; padding: 11px 14px; border-radius: 14px;
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+}
+#search-results { padding: 14px 18px 18px; overflow: auto; }
+.search-notebook {
+  margin: 12px 0 6px; font-size: 12px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.search-hit {
+  display: block; width: 100%; text-align: left; padding: 10px 12px; margin-bottom: 8px;
+  border: 1px solid var(--border); border-radius: 14px; background: var(--panel-2); color: var(--text);
+}
+.search-hit:hover { border-color: var(--accent); }
+.search-hit .search-where { display: block; margin-bottom: 4px; font-size: 12px; color: var(--muted); }
+.search-hit .search-snippet { display: block; font-size: 12.5px; }
 
 #toasts {
   position: fixed; right: 18px; bottom: 100px; z-index: 80;

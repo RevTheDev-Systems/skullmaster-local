@@ -248,6 +248,38 @@ def test_research_unknown_notebook_404(client):
     assert res.status_code == 404
 
 
+# ---------- library search ----------
+
+
+def test_library_search_spans_notebooks(client, notebook):
+    other = client.post("/api/notebooks", json={"name": "Second"}).json()
+    _upload(
+        client,
+        notebook["id"],
+        name=b"a.txt",
+        content=b"The zephyr wombat festival happens every March.",
+    )
+    _upload(
+        client,
+        other["id"],
+        name=b"b.txt",
+        content=b"Tickets for the zephyr wombat festival cost 42 tugrik.",
+    )
+
+    res = client.get("/api/search", params={"q": "zephyr wombat", "k": 10})
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["query"] == "zephyr wombat"
+    names = {r["notebook_name"] for r in data["results"]}
+    assert notebook["name"] in names and "Second" in names
+    assert all(r["notebook_id"] for r in data["results"])
+    assert data["notebooks"] and set(data["notebooks"][0]) >= {"notebook_id", "name", "matches"}
+
+
+def test_library_search_requires_query(client):
+    assert client.get("/api/search", params={"q": "   "}).status_code == 400
+
+
 # ---------- audio overview ----------
 
 

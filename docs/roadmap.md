@@ -32,7 +32,9 @@ subsystems plus the model fabric:
 
 - **Richer knowledge graph** — typed entities and relations with evidence-bound
   edges; navigate from the current radial view into a graph explorer.
-- **Semantic notebook search** — query the library itself, not just one notebook.
+- **Semantic notebook search** — ✅ delivered: `GET /api/search` searches every
+  notebook at once (semantic + keyword), grouped by notebook, opening the exact
+  passage.
 - **More grounded Studio documents** — the local NotebookLM-style set beyond the
   current five, all inheriting the cite-or-refuse rule.
 - **Expanded capability router** — consumer-aware routing (chat/reasoning/
