@@ -1,0 +1,224 @@
+{
+  "name": "skullmaster-retrieval-eval",
+  "description": "Deterministic RAG benchmark corpus. Fictional 'Meridian Program' documents with distractor material; questions cover the ten required retrieval scenarios. Expected fields: relevant (source keys that should be retrieved), match ('all'|'any'), expected_page (grounding check), expected_facts (substrings a grounded answer should contain), must_not (substrings that indicate an unsupported/hallucinated claim), expected_refusal (true when the closed-world answer must decline), citation_required (source keys a complete answer should cite).",
+  "documents": [
+    {
+      "key": "charter",
+      "name": "atlas_charter.pdf",
+      "kind": "pdf",
+      "pages": [
+        {"page": 1, "text": "The Atlas Operations Charter establishes the Meridian Program. The program's primary objective is to deploy a regional sensor network across the Atacama Desert by the third quarter. The charter was ratified on March 12."},
+        {"page": 2, "text": "Section 4: Budget. The total approved budget for the Meridian Program is 940 million dollars. Annual operating costs are capped at 12 million dollars."},
+        {"page": 5, "text": "Section 7: Governance. The program director reports to the Chief Operating Officer. Governance reviews occur quarterly."}
+      ]
+    },
+    {
+      "key": "ops",
+      "name": "atlas_operations_notes.txt",
+      "kind": "text",
+      "text": "Operations note. The Atacama sensor array reached 1.2 gigawatts of connected capacity. The array powers roughly 800,000 homes. Maintenance windows are scheduled every 45 days."
+    },
+    {
+      "key": "budget",
+      "name": "atlas_budget.xlsx",
+      "kind": "sheet",
+      "text": "Sheet: Budget\nDepartment | Q1 | Q2\nSensors | 120 | 135\nLogistics | 80 | 95"
+    },
+    {
+      "key": "briefing",
+      "name": "meridian_briefing.mp4",
+      "kind": "video",
+      "segments": [
+        {"page": 0, "text": "In this briefing we cover the Meridian solar array. Construction was completed in 45 days."},
+        {"page": 68, "text": "The array cost 940 million dollars and produces 1.2 gigawatts of power."}
+      ]
+    },
+    {
+      "key": "memo",
+      "name": "nimbus_cost_memo.txt",
+      "kind": "text",
+      "text": "Internal memo. The Nimbus review disputes the reported figure: the Meridian Program cost only 800 million dollars, not 940 million."
+    },
+    {
+      "key": "charter_copy",
+      "name": "atlas_charter_copy.pdf",
+      "kind": "pdf",
+      "pages": [
+        {"page": 1, "text": "The Atlas Operations Charter establishes the Meridian Program. The program's primary objective is to deploy a regional sensor network across the Atacama Desert by the third quarter. The charter was ratified on March 12."}
+      ]
+    },
+    {
+      "key": "records",
+      "name": "records_retention_policy.txt",
+      "kind": "text",
+      "text": "Records retention policy: laboratory notebooks are archived for seven years. Personal journals may be discarded after two years. Archive requests go to the facilities desk."
+    },
+    {
+      "key": "safety",
+      "name": "lab_safety_handbook.pdf",
+      "kind": "pdf",
+      "pages": [
+        {"page": 1, "text": "Laboratory safety handbook. Eye protection is mandatory in the wet lab. Gloves must be nitrile, not latex. Spill kits are stored beside every bench."},
+        {"page": 4, "text": "Emergency procedures: assemble at the north stairwell. Do not use the elevators during a drill. Report injuries to the safety officer."}
+      ]
+    },
+    {
+      "key": "vendor",
+      "name": "vendor_ratings.xlsx",
+      "kind": "sheet",
+      "text": "Sheet: Vendors\nSupplier | Rating\nNorthwind | A\nContoso | B"
+    },
+    {
+      "key": "faq",
+      "name": "general_faq.txt",
+      "kind": "text",
+      "text": "Frequently asked questions. You can upload documents, videos, and spreadsheets. Answers cite the exact passage they came from. There is no web search by design."
+    }
+  ],
+  "questions": [
+    {
+      "id": "exact-1",
+      "category": "exact_fact",
+      "question": "What is the total approved budget for the Meridian Program?",
+      "relevant": ["charter"],
+      "match": "all",
+      "expected_page": 2,
+      "expected_facts": ["940 million"],
+      "must_not": [],
+      "expected_refusal": false,
+      "citation_required": ["charter"]
+    },
+    {
+      "id": "exact-2",
+      "category": "exact_fact",
+      "question": "Who does the program director report to?",
+      "relevant": ["charter"],
+      "match": "all",
+      "expected_page": 5,
+      "expected_facts": ["Chief Operating Officer"],
+      "must_not": [],
+      "expected_refusal": false,
+      "citation_required": ["charter"]
+    },
+    {
+      "id": "paraphrase-1",
+      "category": "paraphrase",
+      "question": "How much money was approved for the Meridian initiative?",
+      "relevant": ["charter"],
+      "match": "all",
+      "expected_page": 2,
+      "expected_facts": ["940 million"],
+      "must_not": [],
+      "expected_refusal": false,
+      "citation_required": ["charter"]
+    },
+    {
+      "id": "multi-1",
+      "category": "multi_document",
+      "question": "What is the approved budget for the Meridian Program and the connected capacity of the array?",
+      "relevant": ["charter", "ops"],
+      "match": "all",
+      "expected_page": null,
+      "expected_facts": ["940 million", "1.2 gigawatts"],
+      "must_not": [],
+      "expected_refusal": false,
+      "citation_required": ["charter", "ops"]
+    },
+    {
+      "id": "conflict-1",
+      "category": "conflicting_sources",
+      "question": "What did the Meridian Program cost, and do the sources agree on the figure?",
+      "relevant": ["charter", "memo", "briefing"],
+      "match": "any",
+      "expected_page": null,
+      "expected_facts": [],
+      "must_not": [],
+      "expected_refusal": false,
+      "citation_required": ["memo"]
+    },
+    {
+      "id": "table-1",
+      "category": "table_data",
+      "question": "How many Sensors were listed in Q2?",
+      "relevant": ["budget"],
+      "match": "all",
+      "expected_page": null,
+      "expected_facts": ["135"],
+      "must_not": [],
+      "expected_refusal": false,
+      "citation_required": ["budget"]
+    },
+    {
+      "id": "pdf-page-1",
+      "category": "pdf_page_citation",
+      "question": "Which section describes governance and who the program director reports to?",
+      "relevant": ["charter"],
+      "match": "all",
+      "expected_page": 5,
+      "expected_facts": ["Chief Operating Officer"],
+      "must_not": [],
+      "expected_refusal": false,
+      "citation_required": ["charter"]
+    },
+    {
+      "id": "media-1",
+      "category": "media_timestamp_citation",
+      "question": "How long did construction of the Meridian solar array take?",
+      "relevant": ["briefing"],
+      "match": "all",
+      "expected_page": 0,
+      "expected_facts": ["45 days"],
+      "must_not": [],
+      "expected_refusal": false,
+      "citation_required": ["briefing"]
+    },
+    {
+      "id": "duplicate-1",
+      "category": "duplicate_material",
+      "question": "By when is the sensor network to be deployed across the Atacama Desert?",
+      "relevant": ["charter", "charter_copy"],
+      "match": "any",
+      "expected_page": 1,
+      "expected_facts": ["third quarter"],
+      "must_not": [],
+      "expected_refusal": false,
+      "citation_required": ["charter"]
+    },
+    {
+      "id": "irrelevant-1",
+      "category": "irrelevant",
+      "question": "What is the best recipe for sourdough bread?",
+      "relevant": [],
+      "match": "all",
+      "expected_page": null,
+      "expected_facts": [],
+      "must_not": ["sourdough recipe", "preheat the oven", "grams of flour"],
+      "expected_refusal": true,
+      "citation_required": []
+    },
+    {
+      "id": "absent-1",
+      "category": "absent",
+      "question": "Who is the program's chief scientist?",
+      "relevant": [],
+      "match": "all",
+      "expected_page": null,
+      "expected_facts": [],
+      "must_not": ["chief scientist is", "Dr."],
+      "expected_refusal": true,
+      "citation_required": []
+    },
+    {
+      "id": "absent-2",
+      "category": "absent",
+      "question": "What is the exact latitude and longitude of the Atacama array?",
+      "relevant": [],
+      "match": "all",
+      "expected_page": null,
+      "expected_facts": [],
+      "must_not": ["latitude is", "degrees south", "degrees north"],
+      "expected_refusal": true,
+      "citation_required": []
+    }
+  ]
+}

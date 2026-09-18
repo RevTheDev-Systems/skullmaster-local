@@ -32,8 +32,10 @@ def _chunk_id(source_id: str, seq: int, text: str) -> str:
     return f"ch_{digest}"
 
 
-def add_chunks(notebook_id: str, source_id: str, source_name: str, chunks: list[dict]):
-    vectors = get_llm().embed([c["text"] for c in chunks])
+def add_chunks(notebook_id: str, source_id: str, source_name: str,
+               chunks: list[dict], llm=None):
+    """Embed + store chunks. `llm` is injectable for benchmarks/tests."""
+    vectors = (llm or get_llm()).embed([c["text"] for c in chunks])
     rows = [
         {
             "id": _chunk_id(source_id, c["seq"], c["text"]),
@@ -102,13 +104,17 @@ def status() -> dict:
     }
 
 
-def hybrid_search(notebook_id: str, query: str, k: int = TOP_K) -> list[dict]:
-    """Vector + BM25 retrieval merged with reciprocal rank fusion."""
+def hybrid_search(notebook_id: str, query: str, k: int = TOP_K,
+                  llm=None) -> list[dict]:
+    """Vector + BM25 retrieval merged with reciprocal rank fusion.
+
+    `llm` is injectable so the evaluation harness can run deterministically.
+    """
     tbl = _table()
     if tbl is None:
         return []
 
-    qvec = get_llm().embed([query])[0]
+    qvec = (llm or get_llm()).embed([query])[0]
     vector_hits = (
         tbl.search(qvec)
         .where(f"notebook_id = '{notebook_id}'", prefilter=True)

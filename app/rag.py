@@ -50,9 +50,15 @@ def answer_stream(
     notebook_id: str,
     question: str,
     history: list[dict] | None = None,
+    llm=None,
 ) -> tuple[list[dict], Iterator[str]]:
-    """Returns (retrieved_chunks, token_iterator)."""
-    chunks = hybrid_search(notebook_id, question, k=TOP_K)
+    """Returns (retrieved_chunks, token_iterator).
+
+    `llm` is injectable so the evaluation harness can exercise the identical
+    retrieval + prompt path with a deterministic model.
+    """
+    llm = llm or get_llm()
+    chunks = hybrid_search(notebook_id, question, k=TOP_K, llm=llm)
     kinds = {s["id"]: s["kind"] for s in db.list_sources(notebook_id)}
     for c in chunks:
         c["kind"] = kinds.get(c["source_id"], "text")
@@ -75,4 +81,4 @@ def answer_stream(
         )
     messages.append({"role": "user", "content": user_msg})
 
-    return chunks, get_llm().chat(messages, stream=True)
+    return chunks, llm.chat(messages, stream=True)
