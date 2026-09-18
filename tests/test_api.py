@@ -71,6 +71,28 @@ def test_unsupported_and_empty_files(client, notebook):
     assert empty.status_code == 422
 
 
+def test_corrupt_documents_rejected_422(client, notebook):
+    for name, data in [(b"bad.pdf", b"%PDF-1.4 broken"),
+                       (b"bad.docx", b"not a docx"),
+                       (b"bad.xlsx", b"not a zip")]:
+        res = _upload(client, notebook["id"], name=name, content=data)
+        assert res.status_code == 422, (name, res.status_code, res.text)
+
+
+def test_unicode_filename_upload(client, notebook):
+    res = _upload(client, notebook["id"],
+                  name="données café.txt".encode(),
+                  content="Contenu accentué — 日本語".encode())
+    assert res.status_code == 200, res.text
+    assert "café" in res.json()["name"]
+
+
+def test_oversized_upload_rejected_413(client, notebook, monkeypatch):
+    monkeypatch.setattr(main, "MAX_UPLOAD_BYTES", 10)
+    res = _upload(client, notebook["id"], name=b"big.txt", content=b"x" * 100)
+    assert res.status_code == 413
+
+
 def test_source_delete_removes_vectors_and_file(client, notebook):
     src = _upload(client, notebook["id"]).json()
     stored = db.get_source(src["id"])["stored_path"]

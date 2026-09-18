@@ -5,7 +5,9 @@ explicitly submits it for ingestion. Only http/https schemes are allowed
 (no file:// or other local reads), with a hard timeout and size cap. The
 extracted text is stored locally; nothing is re-fetched at runtime.
 """
+import re
 import urllib.request
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -16,49 +18,137 @@ from docx import Document as DocxDocument
 from .config import CHUNK_CHARS, URL_FETCH_TIMEOUT, URL_MAX_BYTES
 from .providers import get_stt
 
-TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".rst", ".csv", ".tsv", ".json", ".html", ".htm"}
+TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".rst", ".csv", ".tsv", ".json"}
+HTML_SUFFIXES = {".html", ".htm"}
 VIDEO_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"}
 AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac"}
 SHEET_SUFFIXES = {".xlsx", ".xlsm"}
 
+# The formal ingestion contract. Kept executable (asserted by tests) so the
+# documented matrix and the parser can't silently drift. OCR is deliberately
+# NOT in this matrix — it is a future capability, never applied by default.
+INGESTION_MATRIX = (
+    {"kind": "pdf", "suffixes": (".pdf",),
+     "metadata": "page number", "citation": "page", "retry": True},
+    {"kind": "docx", "suffixes": (".docx",),
+     "metadata": "heading structure", "citation": "passage", "retry": True},
+    {"kind": "sheet", "suffixes": (".xlsx", ".xlsm"),
+     "metadata": "sheet/row", "citation": "passage", "retry": True},
+    {"kind": "text", "suffixes": tuple(sorted(TEXT_SUFFIXES)),
+     "metadata": "none", "citation": "passage", "retry": True},
+    {"kind": "html", "suffixes": tuple(sorted(HTML_SUFFIXES)),
+     "metadata": "heading structure", "citation": "passage", "retry": True},
+    {"kind": "url", "suffixes": (),
+     "metadata": "origin URL", "citation": "passage", "retry": True},
+    {"kind": "audio", "suffixes": tuple(sorted(AUDIO_SUFFIXES)),
+     "metadata": "timestamp", "citation": "seek", "retry": True},
+    {"kind": "video", "suffixes": tuple(sorted(VIDEO_SUFFIXES)),
+     "metadata": "timestamp", "citation": "seek", "retry": True},
+)
+
 
 class IngestError(Exception):
-    pass
+    """Recoverable ingestion failure — safe to show the user (HTTP 422)."""
+
+
+class _HTMLText(HTMLParser):
+    """Minimal tag stripper used when trafilatura finds no article content."""
+
+    _SKIP = {"script", "style"}
+    _BREAK = {"p", "div", "br", "li", "tr", "section", "article",
+              "h1", "h2", "h3", "h4", "h5", "h6"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._SKIP:
+            self._skip += 1
+        elif tag in self._BREAK:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in self._SKIP:
+            self._skip = max(0, self._skip - 1)
+        elif tag in self._BREAK:
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        if not self._skip and data.strip():
+            self.parts.append(data.strip())
+
+
+def _html_to_text(raw: str) -> str:
+    parser = _HTMLText()
+    try:
+        parser.feed(raw)
+    except Exception:
+        return ""
+    text = "".join(parser.parts)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n\s*\n+", "\n\n", text)
+    return text.strip()
 
 
 def parse_pdf(path: Path) -> list[tuple[int, str]]:
     segments = []
-    with fitz.open(path) as doc:
-        for i, page in enumerate(doc, start=1):
-            text = page.get_text("text").strip()
-            if text:
-                segments.append((i, text))
+    try:
+        with fitz.open(path) as doc:
+            for i, page in enumerate(doc, start=1):
+                text = page.get_text("text").strip()
+                if text:
+                    segments.append((i, text))
+    except IngestError:
+        raise
+    except Exception as e:
+        raise IngestError(f"Could not read PDF: {e}") from e
     if not segments:
         raise IngestError("No extractable text found in PDF (is it scanned images?)")
     return segments
 
 
 def parse_docx(path: Path) -> list[tuple[int | None, str]]:
-    doc = DocxDocument(str(path))
-    parts: list[str] = []
-    for para in doc.paragraphs:
-        text = para.text.strip()
-        if not text:
-            continue
-        # keep heading structure visible to the chunker as paragraph breaks
-        if para.style.name.startswith("Heading"):
-            parts.append(f"\n{text}")
-        else:
-            parts.append(text)
-    for table in doc.tables:
-        for row in table.rows:
-            cells = [c.text.strip() for c in row.cells if c.text.strip()]
-            if cells:
-                parts.append(" | ".join(cells))
+    try:
+        doc = DocxDocument(str(path))
+        parts: list[str] = []
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if not text:
+                continue
+            # keep heading structure visible to the chunker as paragraph breaks
+            if para.style.name.startswith("Heading"):
+                parts.append(f"\n{text}")
+            else:
+                parts.append(text)
+        for table in doc.tables:
+            for row in table.rows:
+                cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                if cells:
+                    parts.append(" | ".join(cells))
+    except IngestError:
+        raise
+    except Exception as e:
+        raise IngestError(f"Could not read DOCX: {e}") from e
     text = "\n\n".join(parts).strip()
     if not text:
         raise IngestError("No extractable text found in DOCX")
     return [(None, text)]
+
+
+def parse_html(path: Path) -> list[tuple[int | None, str]]:
+    """Local HTML → readable text (trafilatura first, tag-stripper fallback)."""
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        raise IngestError(f"Could not read HTML file: {e}") from e
+    text = trafilatura.extract(raw, include_comments=False)
+    if not text or not text.strip():
+        text = _html_to_text(raw)
+    if not text or not text.strip():
+        raise IngestError("No readable content found in HTML")
+    return [(None, text.strip())]
 
 
 def parse_sheet(path: Path) -> list[tuple[int | None, str]]:
@@ -113,7 +203,10 @@ def parse_media(path: Path) -> list[tuple[int, str]]:
 
 
 def parse_text_file(path: Path) -> list[tuple[int | None, str]]:
-    text = path.read_text(encoding="utf-8", errors="replace").strip()
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError as e:
+        raise IngestError(f"Could not read file: {e}") from e
     if not text:
         raise IngestError("File is empty")
     return [(None, text)]
@@ -167,8 +260,11 @@ def parse_file(path: Path) -> tuple[str, int | None, list[tuple[int | None, str]
         return "video", None, parse_media(path)
     if suffix in AUDIO_SUFFIXES:
         return "audio", None, parse_media(path)
+    if suffix in HTML_SUFFIXES:
+        return "html", None, parse_html(path)
     if suffix in TEXT_SUFFIXES or suffix == "":
         return "text", None, parse_text_file(path)
     supported = ".pdf, .docx, " + ", ".join(sorted(
-        TEXT_SUFFIXES | SHEET_SUFFIXES | VIDEO_SUFFIXES | AUDIO_SUFFIXES))
+        TEXT_SUFFIXES | HTML_SUFFIXES | SHEET_SUFFIXES
+        | VIDEO_SUFFIXES | AUDIO_SUFFIXES))
     raise IngestError(f"Unsupported file type: {suffix} (supported: {supported})")
