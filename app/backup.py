@@ -33,6 +33,8 @@ from pathlib import Path, PurePosixPath
 MANIFEST_NAME = "manifest.json"
 FORMAT_VERSION = 1
 SQLITE_NAME = "notebooks.db"
+# Refuse archives that would expand beyond this on disk (zip-bomb guard).
+MAX_RESTORE_BYTES = 8 * 1024**3  # 8 GB
 
 
 class BackupError(Exception):
@@ -139,6 +141,14 @@ def restore_backup(
         if manifest.get("format") != FORMAT_VERSION:
             raise BackupError(f"Unsupported backup format: {manifest.get('format')}")
         expected = manifest.get("files", {})
+
+        # Zip-bomb guard: reject before writing anything if the declared
+        # uncompressed size exceeds the cap.
+        declared = sum(int(f.get("size", 0)) for f in expected.values())
+        if declared > MAX_RESTORE_BYTES:
+            raise BackupError(
+                f"Archive expands to {declared} bytes, over the {MAX_RESTORE_BYTES} byte limit"
+            )
 
         for info in zf.infolist():
             if info.is_dir() or info.filename == MANIFEST_NAME:

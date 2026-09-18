@@ -59,7 +59,9 @@ the same screen asks you to sign in.
   ```
 
 Everything except the login screen, its assets, and the `/healthz` liveness probe
-requires a valid session — including `/health` and every `/api/*` route.
+requires a valid session — including `/health` and every `/api/*` route. The
+reviewed security surfaces (listener, traversal, prompt injection, archive bombs,
+and more) are documented in `docs/security.md`.
 
 ## Swapping models (the whole point of the provider layer)
 
@@ -255,7 +257,8 @@ static/            three-panel web UI (Sources | Chat | Studio), vanilla JS
   login.html/.css/.js   sign-in and first-run password setup screen
 tests/             pytest unit + integration suite (mock providers)
 evals/             RAG benchmark corpus + committed baseline
-docs/              status, browser acceptance, ingestion matrix, knowledge graph
+docs/              status, security, performance, backup, naming, browser acceptance,
+                   ingestion matrix, knowledge graph, observability
 data/              runtime state: uploads, LanceDB, SQLite, generated audio/artifacts
 models/            local TTS/STT weights
 ```
