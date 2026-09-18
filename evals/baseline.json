@@ -8,8 +8,8 @@
   "generated": true,
   "retrieval": {
     "questions": 9,
-    "recall@1": 0.9444,
-    "recall@3": 0.9444,
+    "recall@1": 0.9259,
+    "recall@3": 1.0,
     "recall@8": 1.0,
     "mrr": 1.0,
     "page_accuracy": 1.0
@@ -31,8 +31,8 @@
         "charter",
         "memo",
         "charter_copy",
-        "briefing",
         "budget",
+        "briefing",
         "records"
       ],
       "recall": {
@@ -58,7 +58,7 @@
         "safety",
         "memo",
         "ops",
-        "briefing"
+        "records"
       ],
       "recall": {
         "@1": 1.0,
@@ -80,8 +80,8 @@
       "retrieved": [
         "charter",
         "briefing",
-        "memo",
         "charter_copy",
+        "memo",
         "records",
         "ops"
       ],
@@ -105,19 +105,19 @@
       "retrieved": [
         "charter",
         "briefing",
-        "memo",
         "ops",
+        "memo",
         "charter_copy",
         "faq"
       ],
       "recall": {
-        "@1": 0.5,
-        "@3": 0.5,
+        "@1": 0.3333333333333333,
+        "@3": 1.0,
         "@8": 1.0
       },
       "rr": 1.0,
       "page_hit": null,
-      "answer": "The approved budget for the Meridian Program is 940 million dollars [1], and the array's connected capacity is 1.2 gigawatts [4].",
+      "answer": "The approved budget for the Meridian Program is 940 million dollars [1], and the connected capacity of the array is 1.2 gigawatts [3].",
       "citation_correctness": 1.0,
       "citation_completeness": 1.0,
       "unsupported_claim": false,
@@ -132,7 +132,7 @@
         "charter",
         "briefing",
         "charter_copy",
-        "ops",
+        "safety",
         "faq"
       ],
       "recall": {
@@ -142,7 +142,7 @@
       },
       "rr": 1.0,
       "page_hit": null,
-      "answer": "The Meridian Program cost 940 million dollars as stated in the approved budget [3] and the briefing [4], but an internal memo disputes this figure, stating the cost was 800 million dollars [1]. The sources do not agree on the figure.",
+      "answer": "The Meridian Program cost was stated as 940 million dollars in source [5], which specifies \"the total approved budget for the Meridian Program is 940 million dollars.\" However, source [1] disputes this figure, stating \"the Meridian Program cost only 800 million dollars, not 940 million.\" Therefore, the sources do not agree on the figure.",
       "citation_correctness": 1.0,
       "citation_completeness": 1.0,
       "unsupported_claim": false,
@@ -168,7 +168,7 @@
       },
       "rr": 1.0,
       "page_hit": null,
-      "answer": "135 [1]",
+      "answer": "The Sensors department had 135 listed in Q2 [1].",
       "citation_correctness": 1.0,
       "citation_completeness": 1.0,
       "unsupported_claim": false,
@@ -182,8 +182,9 @@
         "charter",
         "charter_copy",
         "faq",
+        "briefing",
         "memo",
-        "briefing"
+        "safety"
       ],
       "recall": {
         "@1": 1.0,
@@ -192,7 +193,7 @@
       },
       "rr": 1.0,
       "page_hit": true,
-      "answer": "Section 7 describes governance, and the program director reports to the Chief Operating Officer [1].",
+      "answer": "Section 7: Governance [1], and the program director reports to the Chief Operating Officer [1].",
       "citation_correctness": 1.0,
       "citation_completeness": 1.0,
       "unsupported_claim": false,
@@ -205,10 +206,10 @@
       "retrieved": [
         "briefing",
         "charter",
-        "charter_copy",
         "ops",
         "memo",
-        "records"
+        "charter_copy",
+        "safety"
       ],
       "recall": {
         "@1": 1.0,
@@ -217,7 +218,7 @@
       },
       "rr": 1.0,
       "page_hit": true,
-      "answer": "Construction of the Meridian solar array took 45 days. [1]",
+      "answer": "Construction of the Meridian solar array took 45 days [1].",
       "citation_correctness": 1.0,
       "citation_completeness": 1.0,
       "unsupported_claim": false,
@@ -232,8 +233,9 @@
         "charter_copy",
         "ops",
         "safety",
+        "records",
         "briefing",
-        "records"
+        "faq"
       ],
       "recall": {
         "@1": 1.0,
@@ -242,7 +244,7 @@
       },
       "rr": 1.0,
       "page_hit": true,
-      "answer": "The sensor network is to be deployed across the Atacama Desert by the third quarter [1][2].",
+      "answer": "The sensor network is to be deployed by the third quarter [1].",
       "citation_correctness": 1.0,
       "citation_completeness": 1.0,
       "unsupported_claim": false,
@@ -266,7 +268,7 @@
       },
       "rr": null,
       "page_hit": null,
-      "answer": "I couldn't find this in your sources. The provided excerpts contain only information about laboratory safety procedures, document retention policies, and the Atlas Operations Charter for the Meridian Program. None of the sources mention sourdough bread, recipes, or cooking instructions.",
+      "answer": "I couldn't find this in your sources. The sources contain information about laboratory safety protocols [1], records retention policies [4], and the Atlas Operations Charter for the Meridian Program [3][5][7][8], but no recipes or culinary instructions of any kind.",
       "citation_correctness": null,
       "citation_completeness": null,
       "unsupported_claim": false,
@@ -282,7 +284,7 @@
         "memo",
         "safety",
         "ops",
-        "briefing"
+        "faq"
       ],
       "recall": {
         "@1": null,
@@ -291,7 +293,7 @@
       },
       "rr": null,
       "page_hit": null,
-      "answer": "I couldn't find this in your sources. The sources mention the program director reporting to the Chief Operating Officer [1], but do not identify a chief scientist position or name. The sources discuss governance structure [1], charter details [2][4], budget [3][5], technical specifications [7][8], and safety protocols [6], but contain no information about a chief scientist.",
+      "answer": "I couldn't find this in your sources. The sources mention the program director reporting to the Chief Operating Officer [1] and establish the Meridian Program's objective [2][4], but no excerpt references a \"chief scientist\" position or individual.",
       "citation_correctness": null,
       "citation_completeness": null,
       "unsupported_claim": false,
@@ -316,7 +318,7 @@
       },
       "rr": null,
       "page_hit": null,
-      "answer": "I couldn't find this in your sources.  \n\nThe sources mention the Atacama array's technical specifications (1.2 gigawatts of power [1][2]), cost (940 million dollars [2][7] or disputed 800 million [8]), deployment location (Atacama Desert [3][4]), and operational details (construction completed in 45 days [6], maintenance every 45 days [1]), but provide no geographic coordinates.",
+      "answer": "I couldn't find this in your sources. The provided excerpts discuss the array's capacity (1.2 gigawatts [1][2]), cost ($940 million [2][7]), construction timeline (45 days [6]), and program details [3][4][7], but contain no geographic coordinates or location data for the Atacama array.",
       "citation_correctness": null,
       "citation_completeness": null,
       "unsupported_claim": false,
@@ -324,6 +326,6 @@
       "facts_covered": null
     }
   ],
-  "elapsed_seconds": 49.2,
+  "elapsed_seconds": 56.6,
   "corpus_path": "/Users/revenueroy/notebooklm-local/evals/corpus.json"
 }

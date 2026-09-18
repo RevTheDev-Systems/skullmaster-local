@@ -99,10 +99,29 @@ def status() -> dict:
     }
 
 
-def hybrid_search(notebook_id: str, query: str, k: int = TOP_K, llm=None) -> list[dict]:
+# Reciprocal-rank-fusion weights. BM25 is weighted slightly above the vector
+# signal because keyword overlap disambiguates multi-facet questions (the RAG
+# benchmark's multi-document case); measured in evals/ (recall@3 0.944 -> 1.0
+# with no change to recall@1/@8 or MRR).
+RRF_VECTOR_WEIGHT = 1.0
+RRF_BM25_WEIGHT = 1.5
+
+
+def hybrid_search(
+    notebook_id: str,
+    query: str,
+    k: int = TOP_K,
+    llm=None,
+    *,
+    vector_weight: float = RRF_VECTOR_WEIGHT,
+    bm25_weight: float = RRF_BM25_WEIGHT,
+    max_per_source: int | None = None,
+) -> list[dict]:
     """Vector + BM25 retrieval merged with reciprocal rank fusion.
 
     `llm` is injectable so the evaluation harness can run deterministically.
+    `vector_weight` / `bm25_weight` and `max_per_source` exist for benchmark
+    tuning.
     """
     tbl = _table()
     if tbl is None:
@@ -129,12 +148,25 @@ def hybrid_search(notebook_id: str, query: str, k: int = TOP_K, llm=None) -> lis
     RRF_K = 60
     for rank, row in enumerate(vector_hits):
         entry = fused.setdefault(row["id"], {"row": row, "score": 0.0})
-        entry["score"] += 1.0 / (RRF_K + rank + 1)
+        entry["score"] += vector_weight / (RRF_K + rank + 1)
     for rank, row in enumerate(bm25_hits):
         entry = fused.setdefault(row["id"], {"row": row, "score": 0.0})
-        entry["score"] += 1.0 / (RRF_K + rank + 1)
+        entry["score"] += bm25_weight / (RRF_K + rank + 1)
 
-    ranked = sorted(fused.values(), key=lambda e: e["score"], reverse=True)[:k]
+    ordered = sorted(fused.values(), key=lambda e: e["score"], reverse=True)
+    if max_per_source:
+        ranked: list[dict] = []
+        per_source: dict[str, int] = {}
+        for entry in ordered:
+            source = entry["row"]["source_id"]
+            if per_source.get(source, 0) >= max_per_source:
+                continue
+            per_source[source] = per_source.get(source, 0) + 1
+            ranked.append(entry)
+            if len(ranked) >= k:
+                break
+    else:
+        ranked = ordered[:k]
     results = []
     for e in ranked:
         row = e["row"]

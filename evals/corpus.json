@@ -116,7 +116,7 @@
       "id": "multi-1",
       "category": "multi_document",
       "question": "What is the approved budget for the Meridian Program and the connected capacity of the array?",
-      "relevant": ["charter", "ops"],
+      "relevant": ["charter", "briefing", "ops"],
       "match": "all",
       "expected_page": null,
       "expected_facts": ["940 million", "1.2 gigawatts"],

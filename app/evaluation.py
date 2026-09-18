@@ -114,9 +114,36 @@ def citation_completeness(
     return len(cited & required) / len(required)
 
 
+# A "must_not" phrase inside a negated clause is not an assertion, e.g. a
+# correct refusal that says "no information about a chief scientist is provided"
+# mentions the phrase without claiming it.
+NEGATION_CUES = (
+    "no ",
+    "not ",
+    "never ",
+    "without ",
+    "n't ",
+    "nothing about ",
+    "no information",
+    "no mention",
+)
+
+
 def has_unsupported_claim(answer: str, must_not: list[str]) -> bool:
+    """True only if a `must_not` phrase appears as an assertion, not a negation."""
     low = (answer or "").lower()
-    return any(s.lower() in low for s in (must_not or []))
+    for phrase in must_not or []:
+        needle = phrase.lower()
+        start = 0
+        while True:
+            idx = low.find(needle, start)
+            if idx == -1:
+                break
+            window = low[max(0, idx - 40) : idx]
+            if not any(cue in window for cue in NEGATION_CUES):
+                return True
+            start = idx + len(needle)
+    return False
 
 
 def is_refusal(answer: str) -> bool:

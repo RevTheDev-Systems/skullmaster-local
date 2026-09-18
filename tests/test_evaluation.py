@@ -99,6 +99,18 @@ def test_metric_primitives():
 
     assert evaluation.has_unsupported_claim("The cost is 800", ["800"]) is True
     assert evaluation.has_unsupported_claim("Nothing here", ["800"]) is False
+    # a refusal that mentions the phrase is not an unsupported claim
+    refusal = (
+        "I couldn't find this in your sources. The sources mention the "
+        "director, but no information about a chief scientist is provided."
+    )
+    assert evaluation.has_unsupported_claim(refusal, ["chief scientist is"]) is False
+    assert (
+        evaluation.has_unsupported_claim(
+            "The chief scientist is Dr. James.", ["chief scientist is"]
+        )
+        is True
+    )
     assert evaluation.is_refusal("I couldn't find this in your sources.") is True
     assert evaluation.is_refusal("The answer is 42.") is False
 

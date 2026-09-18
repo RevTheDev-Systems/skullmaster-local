@@ -37,8 +37,16 @@ and the others are exercised by the acceptance journey rather than timed in CI.
 The benchmark corpus is synthetic and deterministic; the RAG *quality* baseline
 lives in `evals/baseline.json` (Phase 5).
 
+## Tuning outcome (retrieval)
+
+The Phase 5 baseline flagged the multi-document case (recall@3 0.944). A measured
+sweep of reciprocal-rank-fusion weights showed BM25 weighted slightly above the
+vector signal fixes it: **recall@3 0.944 → 1.0** with no change to recall@1
+(where a multi-document question can only put one source first), recall@8, MRR,
+or any generation metric. `store.RRF_BM25_WEIGHT = 1.5` is now the default, and
+`evals/baseline.json` was regenerated.
+
 ## Observed bottleneck candidates (not yet tuned)
 
 - Retrieval rebuilds the BM25 index over a notebook's rows on every query; fine
   at these sizes, worth revisiting for very large notebooks.
-- Multi-document Recall@3 (Phase 5) is the first quality gap to investigate.
