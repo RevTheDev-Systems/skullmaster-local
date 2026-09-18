@@ -1,4 +1,6 @@
 """Model listing, runtime chat-model switching, and thinking-mode fallback."""
+import types
+
 import ollama
 import pytest
 
@@ -211,6 +213,7 @@ class _FakeOllama:
 
     def status(self):
         return {"backend": "ollama", "base_url": "fake", "reachable": self.up,
+                "state": "healthy" if self.up else "offline",
                 "chat_model": self.chat_model, "chat_model_ready": self.up,
                 "embed_model": self.embed_model, "embed_model_ready": self.up}
 
@@ -376,3 +379,116 @@ def test_lifespan_survives_model_restore_failure(client, monkeypatch):
             pass
     finally:
         db.set_setting(main.CHAT_MODEL_SETTING, previous or "mock-chat")
+
+
+# ---------- capability metadata, caching & router (Phase 6) ----------
+
+class _FakeDetails:
+    parameter_size = "8B"
+    quantization_level = "Q4_K_M"
+    family = "llama"
+
+
+class _FakeModel:
+    def __init__(self, name):
+        self.model = name
+        self.size = 1
+        self.details = _FakeDetails()
+
+
+class _FakeShow:
+    def __init__(self, caps, context_length=None):
+        self.capabilities = caps
+        self.model_info = {"llama.context_length": context_length} if context_length else {}
+
+
+class _FakeOllamaClient:
+    def __init__(self, models, caps, context=None, reachable=True):
+        self._models = [_FakeModel(m) for m in models]
+        self._caps = caps
+        self._ctx = context or {}
+        self.reachable = reachable
+        self.list_calls = 0
+        self.show_calls = 0
+
+    def list(self):
+        self.list_calls += 1
+        if not self.reachable:
+            raise RuntimeError("ollama down")
+        return types.SimpleNamespace(models=self._models)
+
+    def show(self, name):
+        self.show_calls += 1
+        return _FakeShow(self._caps.get(name, []), self._ctx.get(name))
+
+
+def _ollama(caps, models=None, **kw):
+    p = OllamaProvider()
+    p.client = _FakeOllamaClient(models if models is not None else list(caps), caps, **kw)
+    return p
+
+
+def test_ollama_capability_metadata_is_cached_and_refreshable():
+    p = _ollama({
+        "chat": ["completion", "tools", "thinking"],
+        "embed": ["embedding"],
+    }, context={"chat": 131072})
+
+    cold = p.list_models()
+    assert p.client.show_calls == 2              # cold: one show() per model
+    warm = p.list_models()
+    assert p.client.show_calls == 2              # warm: cache, no show()
+    assert warm == cold
+    p.list_models(refresh=True)
+    assert p.client.show_calls == 4              # refresh bypasses the cache
+
+    chat = next(m for m in cold if m["name"] == "chat")
+    assert chat["can_chat"] and chat["can_reason"] and chat["can_tools"]
+    assert not chat["can_embed"] and not chat["can_vision"]
+    assert chat["context_length"] == 131072
+    assert chat["capabilities"] == ["completion", "tools", "thinking"]
+
+    embed = next(m for m in cold if m["name"] == "embed")
+    assert embed["can_embed"] and not embed["can_chat"]
+
+
+def test_ollama_provider_state_healthy_degraded_offline():
+    healthy = _ollama({"qwen3:30b": ["completion"], "nomic-embed-text": ["embedding"]},
+                      models=["qwen3:30b", "nomic-embed-text"])
+    healthy.chat_model, healthy.embed_model = "qwen3:30b", "nomic-embed-text"
+    assert healthy.status()["state"] == "healthy"
+
+    degraded = _ollama({"qwen3:30b": ["completion"]}, models=["qwen3:30b"])
+    degraded.chat_model, degraded.embed_model = "qwen3:30b", "nomic-embed-text"
+    assert degraded.status()["state"] == "degraded"
+
+    offline = _ollama({}, models=[], reachable=False)
+    assert offline.status()["state"] == "offline"
+
+
+def test_capability_router_selects_by_capability():
+    p = _routing(_FakeOllama(), _FakeMLX(up=True))
+    p.chat_model = "ollama::chat"
+    p.list_models = lambda refresh=False: [
+        {"name": "ollama::chat", "can_chat": True, "can_reason": False},
+        {"name": "ollama::reasoner", "can_chat": True, "can_reason": True},
+        {"name": "mlx::mlx-community/Thinker", "can_chat": True, "can_reason": True},
+    ]
+    assert p.route("chat") == "ollama::chat"          # active model qualifies
+    assert p.route("reasoning") == "ollama::reasoner"  # first capable fallback
+    assert p.route("vision") is None
+
+
+def test_provider_states_reflect_backend_health():
+    p = _routing(_FakeOllama(), _FakeMLX(up=False))
+    states = p.provider_states()
+    assert states["ollama"]["configured"] is True
+    assert states["ollama"]["state"] == "healthy"
+    assert states["mlx"]["state"] == "offline"
+
+
+def test_models_api_exposes_providers_and_accepts_refresh(client):
+    assert "providers" in client.get("/api/models").json()
+    refreshed = client.get("/api/models?refresh=1")
+    assert refreshed.status_code == 200
+    assert refreshed.json()["models"]

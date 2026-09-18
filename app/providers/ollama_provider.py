@@ -1,5 +1,6 @@
 """Ollama LLM provider: chat + embeddings against OLLAMA_BASE_URL."""
 import logging
+import time
 from collections.abc import Iterator
 
 import ollama
@@ -8,6 +9,29 @@ from ..config import CHAT_MODEL, EMBED_MODEL, OLLAMA_BASE_URL
 
 log = logging.getLogger(__name__)
 
+# Per-model capability/context metadata comes from show(), which is one HTTP
+# call per model (the "N+1"). Cache it so the model picker is a single list()
+# call when warm, with an explicit refresh for when a model was just changed.
+METADATA_TTL = 300.0
+
+
+def _context_length(model_info: dict) -> int | None:
+    for key, value in (model_info or {}).items():
+        if key.endswith("context_length") and isinstance(value, int):
+            return value
+    return None
+
+
+def capability_flags(caps: list[str]) -> dict:
+    """Map Ollama's capability strings to the router's boolean flags."""
+    return {
+        "can_chat": "completion" in caps,
+        "can_embed": "embedding" in caps,
+        "can_reason": "thinking" in caps,
+        "can_vision": "vision" in caps,
+        "can_tools": "tools" in caps,
+    }
+
 
 class OllamaProvider:
     def __init__(self):
@@ -15,6 +39,9 @@ class OllamaProvider:
         self.chat_model = CHAT_MODEL
         self.embed_model = EMBED_MODEL
         self._thinking: dict[str, bool] = {}   # model name -> supports thinking
+        self._meta_cache: dict[str, tuple[float, dict]] = {}
+        self.list_calls = 0        # list() HTTP calls (for latency measurement)
+        self.metadata_calls = 0    # show() HTTP calls (the N+1)
 
     # ---- chat ----
 
@@ -37,7 +64,7 @@ class OllamaProvider:
 
     def _supports_thinking(self, model: str) -> bool:
         if model not in self._thinking:
-            self._thinking[model] = "thinking" in self._capabilities(model)
+            self._thinking[model] = "thinking" in self._metadata(model)["capabilities"]
         return self._thinking[model]
 
     def _chat_stream(self, messages: list[dict]) -> Iterator[str]:
@@ -79,23 +106,51 @@ class OllamaProvider:
         except Exception:
             return False
 
-    def _capabilities(self, name: str) -> list[str]:
-        """Ollama reports capabilities from show(), not list()."""
-        try:
-            return list(getattr(self.client.show(name), "capabilities", None) or [])
-        except Exception:
-            return []
+    def _metadata(self, name: str, refresh: bool = False) -> dict:
+        """Cached show() metadata: capabilities + context length.
 
-    def list_models(self) -> list[dict]:
+        `refresh=True` bypasses the TTL, which the picker's refresh button uses
+        so a freshly pulled/changed model is re-read. Warm listings make no
+        show() calls at all.
+        """
+        now = time.time()
+        cached = self._meta_cache.get(name)
+        if cached and not refresh and now - cached[0] < METADATA_TTL:
+            return cached[1]
+        self.metadata_calls += 1
+        caps: list[str] = []
+        context_length = None
+        try:
+            show = self.client.show(name)
+            caps = list(getattr(show, "capabilities", None) or [])
+            # ollama-python names this attribute `modelinfo`; accept both.
+            info = (getattr(show, "model_info", None)
+                    or getattr(show, "modelinfo", None) or {})
+            context_length = _context_length(info)
+        except Exception:
+            pass
+        meta = {"capabilities": caps, "context_length": context_length}
+        self._meta_cache[name] = (now, meta)
+        return meta
+
+    def _capabilities(self, name: str, refresh: bool = False) -> list[str]:
+        return self._metadata(name, refresh)["capabilities"]
+
+    def list_models(self, refresh: bool = False) -> list[dict]:
+        self.list_calls += 1
         models = []
         for m in self.client.list().models:
-            caps = self._capabilities(m.model)
+            meta = self._metadata(m.model, refresh=refresh)
+            caps = meta["capabilities"]
+            details = getattr(m, "details", None)
             models.append({
                 "name": m.model,
                 "size": m.size,
-                "parameter_size": getattr(m.details, "parameter_size", None) if m.details else None,
-                "can_chat": "completion" in caps,
-                "can_embed": "embedding" in caps,
+                "parameter_size": getattr(details, "parameter_size", None) if details else None,
+                "quantization": getattr(details, "quantization_level", None) if details else None,
+                "capabilities": caps,
+                "context_length": meta["context_length"],
+                **capability_flags(caps),
             })
         return sorted(models, key=lambda m: m["name"])
 
@@ -132,12 +187,23 @@ class OllamaProvider:
             installed, reachable = set(), False
         def present(m):
             return bool({m, f"{m}:latest"} & installed)
+        chat_ready = present(self.chat_model)
+        embed_ready = present(self.embed_model)
+        if not reachable:
+            state = "offline"
+        elif chat_ready and embed_ready:
+            state = "healthy"
+        else:
+            state = "degraded"
         return {
             "backend": "ollama",
             "base_url": OLLAMA_BASE_URL,
             "reachable": reachable,
+            "state": state,
             "chat_model": self.chat_model,
-            "chat_model_ready": present(self.chat_model),
+            "chat_model_ready": chat_ready,
             "embed_model": self.embed_model,
-            "embed_model_ready": present(self.embed_model),
+            "embed_model_ready": embed_ready,
+            "list_calls": self.list_calls,
+            "metadata_calls": self.metadata_calls,
         }

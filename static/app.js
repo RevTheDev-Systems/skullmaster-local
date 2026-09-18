@@ -100,7 +100,7 @@ function problemFromHealth(h) {
   return "Degraded — run diagnostics";
 }
 
-async function loadModels({ notify = false } = {}) {
+async function loadModels({ notify = false, refresh = false } = {}) {
   const select = $("#model-select");
   const btn = $("#health-refresh");
   btn.disabled = true;
@@ -114,7 +114,10 @@ async function loadModels({ notify = false } = {}) {
     let modelsError = null;
     const [health, models] = await Promise.all([
       api("/api/health"),
-      api("/api/models").catch((err) => { modelsError = err.message; return null; }),
+      // refresh=1 bypasses the server's cached per-model metadata (used by the
+      // refresh button after a model was pulled/removed).
+      api(`/api/models${refresh ? "?refresh=1" : ""}`)
+        .catch((err) => { modelsError = err.message; return null; }),
     ]);
 
     if (modelsError) {
@@ -148,7 +151,8 @@ async function loadModels({ notify = false } = {}) {
           opt.value = m.name;
           // MLX ids carry an org prefix ("mlx-community/…") that adds no meaning here.
           opt.textContent = (m.label || m.name).split("/").pop();
-          opt.title = m.label || m.name;
+          const caps = (m.capabilities || []).join(", ");
+          opt.title = `${m.label || m.name}${caps ? ` · ${caps}` : ""}`;
           opt.dataset.backend = key;
           parent.appendChild(opt);
         }
@@ -188,7 +192,7 @@ async function loadModels({ notify = false } = {}) {
   }
 }
 
-$("#health-refresh").addEventListener("click", () => loadModels({ notify: true }));
+$("#health-refresh").addEventListener("click", () => loadModels({ notify: true, refresh: true }));
 
 $("#model-select").addEventListener("change", async (e) => {
   const name = e.target.value;

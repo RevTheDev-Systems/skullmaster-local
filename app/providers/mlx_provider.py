@@ -29,6 +29,10 @@ NON_CHAT_HINTS = (
     "clip", "vae", "musicgen", "parler", "bark", "encodec",
 )
 
+# OpenAI-compatible /v1/models exposes no capabilities, so reasoning support is
+# inferred from well-known naming conventions (flagged as a heuristic in logs).
+REASONING_HINTS = ("qwen3", "qwq", "deepseek-r1", "reason", "thinking", "-r1")
+
 
 def _looks_like_chat_model(name: str) -> bool:
     lowered = name.lower()
@@ -41,6 +45,7 @@ class MLXProvider:
     def __init__(self, base_url: str | None = None):
         self.base_url = (base_url or MLX_BASE_URL).rstrip("/")
         self.chat_model = ""
+        self.call_count = 0   # /v1/models HTTP calls (for latency measurement)
 
     # ---- chat ----
 
@@ -89,6 +94,7 @@ class MLXProvider:
     # ---- discovery ----
 
     def list_models(self) -> list[dict]:
+        self.call_count += 1
         with httpx.Client(timeout=MLX_REQUEST_TIMEOUT) as client:
             response = client.get(f"{self.base_url}/models")
             response.raise_for_status()
@@ -99,8 +105,14 @@ class MLXProvider:
                     "name": m["id"],
                     "size": None,
                     "parameter_size": None,
+                    "quantization": None,
+                    "capabilities": ["completion"],
+                    "context_length": None,
                     "can_chat": True,
                     "can_embed": False,
+                    "can_reason": any(h in m["id"].lower() for h in REASONING_HINTS),
+                    "can_vision": False,
+                    "can_tools": False,
                 }
                 for m in data
                 if m.get("id") and _looks_like_chat_model(m["id"])
@@ -124,5 +136,7 @@ class MLXProvider:
             "backend": "mlx",
             "base_url": self.base_url,
             "reachable": up,
+            "state": "healthy" if up else "offline",
             "detail": "connected" if up else "no MLX server on this endpoint",
+            "list_calls": self.call_count,
         }

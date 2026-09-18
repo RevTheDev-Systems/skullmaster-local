@@ -141,10 +141,15 @@ class RoutingProvider:
     def embed(self, texts: list[str]) -> list[list[float]]:
         return self.ollama.embed(texts)
 
-    def list_models(self) -> list[dict]:
+    def list_models(self, refresh: bool = False) -> list[dict]:
+        """All models from every configured provider, with capability flags.
+
+        A failure in one provider is isolated: the other still lists its models.
+        `refresh=True` re-reads per-model metadata (bypassing Ollama's cache).
+        """
         models: list[dict] = []
         try:
-            for m in self.ollama.list_models():
+            for m in self.ollama.list_models(refresh=refresh):
                 models.append({**m, "backend": OLLAMA, "label": m["name"],
                                "name": qualify(OLLAMA, m["name"])})
         except Exception as e:
@@ -157,6 +162,52 @@ class RoutingProvider:
             except Exception as e:
                 log.warning("Could not list MLX models: %s", e)
         return models
+
+    # ---- capability router / registry ----
+
+    def provider_states(self) -> dict:
+        """Per-provider state: configured / reachable / healthy|degraded|offline."""
+        states: dict[str, dict] = {}
+        try:
+            o = self.ollama.status()
+            states[OLLAMA] = {"configured": True, "reachable": o.get("reachable", False),
+                              "state": o.get("state", "offline")}
+        except Exception:
+            states[OLLAMA] = {"configured": True, "reachable": False, "state": "offline"}
+        if self.mlx:
+            try:
+                m = self.mlx.status()
+                states[MLX] = {"configured": True, "reachable": m.get("reachable", False),
+                               "state": m.get("state", "offline")}
+            except Exception:
+                states[MLX] = {"configured": True, "reachable": False, "state": "offline"}
+        else:
+            states[MLX] = {"configured": False, "reachable": False, "state": "offline"}
+        return states
+
+    def route(self, capability: str = "chat") -> str | None:
+        """The active model if it supports `capability`, else the first that does.
+
+        Capabilities: chat | reasoning | embedding | vision | tools. Returns a
+        qualified model id or None. Embeddings still execute on Ollama.
+        """
+        flag = {"chat": "can_chat", "reasoning": "can_reason",
+                "embedding": "can_embed", "vision": "can_vision",
+                "tools": "can_tools"}.get(capability, f"can_{capability}")
+        models = self.list_models()
+        active = next((m for m in models if m.get("name") == self.chat_model), None)
+        if active and active.get(flag):
+            return self.chat_model
+        return next((m.get("name") for m in models if m.get(flag)), None)
+
+    def registry(self, refresh: bool = False) -> dict:
+        """Provider + model registry for the picker and diagnostics."""
+        return {
+            "providers": self.provider_states(),
+            "active": self.chat_model,
+            "preferred": self._preferred,
+            "models": self.list_models(refresh=refresh),
+        }
 
     def preferred_model(self) -> str:
         return self._preferred
@@ -217,6 +268,14 @@ class RoutingProvider:
         base["preferred_model"] = self._preferred
         if self.runtime_warning:
             base["warning"] = self.runtime_warning
+        states = {OLLAMA: {"configured": True, "reachable": base.get("reachable", False),
+                           "state": base.get("state", "offline")}}
         if self.mlx:
-            base["mlx"] = self.mlx.status()
+            mlx_status = self.mlx.status()
+            base["mlx"] = mlx_status
+            states[MLX] = {"configured": True, "reachable": mlx_status.get("reachable", False),
+                           "state": mlx_status.get("state", "offline")}
+        else:
+            states[MLX] = {"configured": False, "reachable": False, "state": "offline"}
+        base["provider_states"] = states
         return base

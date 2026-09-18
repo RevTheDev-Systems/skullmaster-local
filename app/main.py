@@ -266,20 +266,41 @@ def _llm_attr(llm, name: str):
     return value() if callable(value) else value
 
 
-@app.get("/api/models")
-def models_list():
-    """Installed models plus the preferred and currently active chat models.
+def _list_models(llm, refresh: bool = False):
+    """Call list_models(refresh=...) when supported, else without it."""
+    try:
+        return llm.list_models(refresh=refresh)
+    except TypeError:
+        return llm.list_models()
 
-    `chat_model` is the active runtime model, which may be a fallback when the
-    preferred backend is offline; `preferred_model` is always the user's choice.
+
+def _model_registry(llm, refresh: bool = False) -> dict:
+    """Providers + models; RoutingProvider exposes a richer registry()."""
+    registry = getattr(llm, "registry", None)
+    if callable(registry):
+        try:
+            return registry(refresh=refresh)
+        except TypeError:
+            return registry()
+    return {"models": _list_models(llm, refresh)}
+
+
+@app.get("/api/models")
+def models_list(refresh: bool = False):
+    """Installed models with capabilities, provider states, and active/preferred.
+
+    `chat_model` is the active runtime model (may be a fallback when the
+    preferred backend is offline); `preferred_model` is the user's choice.
+    `?refresh=1` bypasses cached per-model metadata, e.g. after a model pull.
     """
     llm = get_llm()
     try:
-        models = llm.list_models()
+        registry = _model_registry(llm, refresh)
     except Exception as e:
         raise HTTPException(503, f"Could not reach the model backend: {e}")
     return {
-        "models": models,
+        "models": registry.get("models", []),
+        "providers": registry.get("providers"),
         "chat_model": llm.chat_model,                       # active runtime model
         "preferred_model": _llm_attr(llm, "preferred_model") or llm.chat_model,
         "warning": _llm_attr(llm, "runtime_warning"),
@@ -291,7 +312,7 @@ def models_set_chat(body: ModelIn):
     """Switch the active chat model and remember the preference across restarts."""
     llm = get_llm()
     try:
-        available = {m["name"]: m for m in llm.list_models()}
+        available = {m["name"]: m for m in _list_models(llm)}
     except Exception as e:
         raise HTTPException(503, f"Could not reach the model backend: {e}")
     chosen = available.get(body.name)
