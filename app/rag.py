@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from . import db
 from .config import CONTEXT_HISTORY_TURNS, TOP_K, load_prompt
 from .providers import get_llm
-from .store import hybrid_search, hybrid_search_many
+from .store import hybrid_search, hybrid_search_many, notebook_chunks
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +37,19 @@ def _parse_tool_call(text: str) -> dict | None:
     if isinstance(data, dict) and isinstance(data.get("tool"), str):
         return data
     return None
+
+
+def _tool_context(notebook_ids: list[str]) -> dict:
+    """Bounded source text for source-scoped tools (count/find across sources)."""
+    rows: list[dict] = []
+    for nb_id in notebook_ids:
+        notebook = db.get_notebook(nb_id)
+        name = notebook["name"] if notebook else nb_id
+        for chunk in notebook_chunks(nb_id):
+            rows.append({**chunk, "notebook_name": name})
+            if len(rows) >= 500:
+                return {"sources": rows}
+    return {"sources": rows}
 
 
 def format_timestamp(seconds: int) -> str:
@@ -188,7 +201,11 @@ def research_stream(
         return chunks, iter([plan_raw])  # answered directly; nothing to run
 
     try:
-        result = tool_mod.run_tool(plan["tool"], plan.get("args") or {})
+        context = None
+        spec = tool_mod.TOOLS.get(str(plan["tool"]))
+        if spec is not None and spec.get("contextual"):
+            context = _tool_context(notebook_ids)
+        result = tool_mod.run_tool(plan["tool"], plan.get("args") or {}, context)
         log.info("Research tool %s(%s) -> %s", plan["tool"], plan.get("args"), result)
     except tool_mod.ToolError as e:
         result = {"error": str(e)}

@@ -78,6 +78,22 @@ def test_run_tool_and_validation():
         tools.run_tool("calculator", {"wrong": "1+1"})
 
 
+def test_source_scoped_tools():
+    ctx = {
+        "sources": [
+            {"source_name": "a.txt", "page": 1, "text": "Meridian meridian array"},
+            {"source_name": "b.txt", "page": 2, "text": "nothing here"},
+        ]
+    }
+    assert tools.run_tool("count_in_sources", {"term": "MERIDIAN"}, ctx)["count"] == 2
+    found = tools.run_tool("find_in_sources", {"term": "meridian", "limit": 5}, ctx)
+    assert found["matches"][0]["source"] == "a.txt"
+    # contextual tools are refused without a research context
+    with pytest.raises(ToolError):
+        tools.run_tool("count_in_sources", {"term": "x"})
+    assert any(t["scope"] == "sources" for t in tools.list_tools())
+
+
 # ---------- API ----------
 
 
@@ -88,6 +104,7 @@ class _FakeLLM:
     def __init__(self, plan=None):
         self.plan = plan
         self.calls = []
+        self.seen = []
 
     def embed(self, texts):
         # 8-dim to match MockLLM, so it can search the shared test index.
@@ -95,9 +112,30 @@ class _FakeLLM:
 
     def chat(self, messages, stream=False):
         self.calls.append(stream)
+        self.seen.append(messages)
         if stream:
             return iter(["It is 42 [1]."])
         return self.plan if self.plan is not None else "Direct answer."
+
+
+def test_source_scoped_tool_gets_research_context(monkeypatch):
+    from app import db, rag
+
+    db.init_db()
+    monkeypatch.setattr(
+        rag,
+        "_tool_context",
+        lambda ids: {
+            "sources": [{"source_name": "s.txt", "page": None, "text": "Meridian meridian array"}]
+        },
+    )
+    llm = _FakeLLM(plan='{"tool": "count_in_sources", "args": {"term": "meridian"}}')
+    _, tokens = rag.research_stream(
+        ["nb"], "how often is Meridian mentioned?", [], llm=llm, use_tools=True
+    )
+    assert "".join(tokens) == "It is 42 [1]."
+    observation = " ".join(m.get("content", "") for m in llm.seen[-1])
+    assert '"count": 2' in observation
 
 
 def test_research_tool_round_runs_once():

@@ -13,6 +13,13 @@ arguments and raises `ToolError` on anything unexpected.
 | `days_between` | `start`, `end` (ISO dates) | whole days |
 | `convert` | `value`, `from_unit`, `to_unit` | converted value |
 | `word_count` | `text` | words and characters |
+| `count_in_sources` | `term` | occurrences across the notebook's sources |
+| `find_in_sources` | `term`, `limit` | short matching passages + source/page |
+
+The last two are **source-scoped** (`scope: "sources"`): they run against the
+notebook's own text and are only available inside a research answer (the research
+path injects a bounded `{sources: [...]}` context). Calling them through
+`/api/tools/run` directly returns 422.
 
 `convert` supports length (m/km/cm/mm/mi/ft/in/yd), mass (g/kg/mg/lb/oz), data
 (b/kb/mb/gb/tb), and temperature (c/f/k).
@@ -49,7 +56,8 @@ toggle). When enabled, `rag.research_stream` allows **one bounded tool round**:
    normally.
 2. If a tool call is parsed, it is run through `run_tool`, and the call, args,
    and result are **logged** (`app.rag`); the trusted result is fed back with an
-   explicit "do not cite it" instruction.
+   explicit "do not cite it" instruction. Source-scoped tools receive a bounded
+   `{sources: [...]}` context gathered from the target notebooks.
 3. The final answer is then streamed with the usual grounded citations.
 
 If the model answers directly (no tool), that text streams unchanged. Grounding,
@@ -58,6 +66,6 @@ opt-in.
 
 ## Roadmap
 
-Source-scoped tools (e.g. count occurrences across a notebook) and a stricter
-multi-step budget are deliberate future steps, still local, deterministic, and
-cite-or-refuse.
+Source-scoped tools are delivered (`count_in_sources`, `find_in_sources`). A
+deliberate future step is a stricter multi-step budget (currently exactly one
+tool round), still local, deterministic, and cite-or-refuse.

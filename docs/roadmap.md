@@ -53,8 +53,9 @@ subsystems plus the model fabric:
   navigator, and a narrated MP4 (slide images + local TTS, muxed with ffmpeg).
 - **Controlled tool-using research workflows** — ✅ a safe, auditable tool
   registry (`app/tools.py`, `/api/tools`) with no code execution, wired into
-  research answers as one opt-in, logged tool round (`use_tools`). Source-scoped
-  tools and a multi-step budget remain future.
+  research answers as one opt-in, logged tool round (`use_tools`), with
+  source-scoped `count_in_sources` / `find_in_sources`. A multi-step budget
+  remains future.
 
 ## Principles
 

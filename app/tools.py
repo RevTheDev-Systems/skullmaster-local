@@ -12,7 +12,7 @@ import ast
 import operator
 from collections.abc import Callable
 from datetime import date
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 MATH_ERROR = "invalid expression"
 
@@ -156,6 +156,57 @@ class _ToolSpec(TypedDict):
     description: str
     args: dict[str, str]
     run: Callable[..., dict]
+    contextual: NotRequired[bool]  # needs a {sources: [...]} context (research)
+
+
+def _source_rows(context: dict | None) -> list[dict]:
+    rows = (context or {}).get("sources")
+    return rows if isinstance(rows, list) else []
+
+
+def count_in_sources(args: dict, context: dict) -> dict:
+    """Count case-insensitive occurrences of a term across the notebook sources."""
+    term = args.get("term")
+    if not isinstance(term, str) or not term.strip():
+        raise ToolError("term is required")
+    needle = term.lower()
+    total = matched = 0
+    for row in _source_rows(context):
+        hits = str(row.get("text", "")).lower().count(needle)
+        if hits:
+            total += hits
+            matched += 1
+    return {"term": term, "count": total, "sources_with_matches": matched}
+
+
+def find_in_sources(args: dict, context: dict) -> dict:
+    """Return short passages containing a term across the notebook sources."""
+    term = args.get("term")
+    if not isinstance(term, str) or not term.strip():
+        raise ToolError("term is required")
+    try:
+        limit = int(args.get("limit", 5))
+    except (TypeError, ValueError) as e:
+        raise ToolError("limit must be an integer") from e
+    limit = max(1, min(limit, 20))
+    needle = term.lower()
+    matches = []
+    for row in _source_rows(context):
+        text = str(row.get("text", ""))
+        found = text.lower().find(needle)
+        if found == -1:
+            continue
+        start, end = max(0, found - 80), min(len(text), found + len(term) + 80)
+        matches.append(
+            {
+                "source": row.get("source_name", ""),
+                "page": row.get("page"),
+                "snippet": text[start:end],
+            }
+        )
+        if len(matches) >= limit:
+            break
+    return {"term": term, "matches": matches}
 
 
 TOOLS: dict[str, _ToolSpec] = {
@@ -182,19 +233,40 @@ TOOLS: dict[str, _ToolSpec] = {
         "args": {"text": "string"},
         "run": word_count,
     },
+    "count_in_sources": {
+        "description": "Count occurrences of a term across the notebook's sources.",
+        "args": {"term": "string"},
+        "run": count_in_sources,
+        "contextual": True,
+    },
+    "find_in_sources": {
+        "description": "Find short passages containing a term across the notebook's sources.",
+        "args": {"term": "string", "limit": "integer (default 5)"},
+        "run": find_in_sources,
+        "contextual": True,
+    },
 }
 
 
 def list_tools() -> list[dict]:
-    """Tool catalog for clients (name, description, argument shapes)."""
+    """Tool catalog for clients (name, description, argument shapes, scope)."""
     return [
-        {"name": name, "description": tool["description"], "args": tool["args"]}
+        {
+            "name": name,
+            "description": tool["description"],
+            "args": tool["args"],
+            "scope": "sources" if tool.get("contextual") else "local",
+        }
         for name, tool in TOOLS.items()
     ]
 
 
-def run_tool(name: str, args: dict | None = None):
-    """Run a named tool with keyword arguments, validating the call."""
+def run_tool(name: str, args: dict | None = None, context: dict | None = None):
+    """Run a named tool, validating the call.
+
+    Contextual (source-scoped) tools require a `{sources: [...]}` context, which
+    only the research path supplies; the bare API refuses them with a clear 422.
+    """
     tool = TOOLS.get(name)
     if tool is None:
         raise ToolError(f"unknown tool: {name}")
@@ -206,6 +278,10 @@ def run_tool(name: str, args: dict | None = None):
     if unexpected:
         raise ToolError(f"unexpected argument(s): {', '.join(sorted(unexpected))}")
     try:
+        if tool.get("contextual"):
+            if context is None:
+                raise ToolError(f"{name} is available only inside a research answer")
+            return tool["run"](args, context)
         return tool["run"](**args)
     except ToolError:
         raise
