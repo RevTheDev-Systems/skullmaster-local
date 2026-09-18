@@ -15,7 +15,8 @@ See `README.md` for usage and the architecture overview.
   `[n]` citations, persisted conversation with `completed` / `interrupted`
   turn states.
 - **Studio** — Audio Overview; chart / infographic / spreadsheet / mind graph;
-  and the text artifacts (briefing, study guide, FAQ, timeline, source summary).
+  source comparison (each position attributed to a real source); and the text
+  artifacts (briefing, study guide, FAQ, timeline, source summary).
   Strict server-side spec validation with one retry on malformed model output;
   model refusals are final. Mind-graph nodes are bound to source evidence.
 - **Providers** — Ollama + MLX behind a capability router. Preferred vs. active

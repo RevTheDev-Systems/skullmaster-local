@@ -141,6 +141,19 @@ class MockLLM:
                     "source_note": "mock sources",
                 }
             )
+        if "compare sources" in system:
+            return json.dumps(
+                {
+                    "title": "Mock Comparison",
+                    "topics": [
+                        {
+                            "topic": "Facts",
+                            "positions": [{"source": "facts.txt", "stance": "agree", "claim": "c"}],
+                        }
+                    ],
+                    "source_note": "mock sources",
+                }
+            )
         assert "podcast" in system.lower() or "host" in system.lower()
         lines = [
             {"speaker": "A" if i % 2 == 0 else "B", "text": f"Line {i} about the sources."}

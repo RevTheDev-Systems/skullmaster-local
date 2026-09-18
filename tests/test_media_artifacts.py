@@ -110,6 +110,7 @@ def _seed(client, nb_id):
         ("infographic", "Mock Infographic"),
         ("spreadsheet", "Mock Table"),
         ("mindgraph", "Mock Mind Graph"),
+        ("comparison", "Mock Comparison"),
         ("briefing", "Mock Briefing"),
         ("study_guide", "Mock Study Guide"),
         ("faq", "Mock FAQ"),
@@ -541,6 +542,78 @@ def test_text_artifact_generation(monkeypatch, kind, spec):
 def test_text_artifact_validation_rejects_bad_shapes(kind, bad):
     with pytest.raises(studio.ModelOutputError):
         studio._validate_artifact_spec(kind, bad)
+
+
+# ---------- source comparison ----------
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"title": "t", "topics": []},
+        {"title": "t", "topics": [{"topic": "T", "positions": []}]},
+        {
+            "title": "t",
+            "topics": [
+                {"topic": "T", "positions": [{"source": "s", "stance": "maybe", "claim": "c"}]}
+            ],
+        },
+        {
+            "title": "t",
+            "topics": [{"topic": "T", "positions": [{"source": "s", "stance": "agree"}]}],
+        },
+    ],
+)
+def test_comparison_validation_rejects_bad_shapes(bad):
+    with pytest.raises(studio.ModelOutputError):
+        studio._validate_artifact_spec("comparison", bad)
+
+
+def test_comparison_drops_sources_that_do_not_exist(monkeypatch):
+    monkeypatch.setattr(
+        studio,
+        "notebook_chunks",
+        lambda nb: [{"source_name": "real.txt", "page": None, "seq": 0, "text": "x"}],
+    )
+    spec = studio._validate_artifact_spec(
+        "comparison",
+        {
+            "title": "t",
+            "topics": [
+                {
+                    "topic": "T",
+                    "positions": [
+                        {"source": "real.txt", "stance": "agree", "claim": "c"},
+                        {"source": "ghost.txt", "stance": "differ", "claim": "d"},
+                    ],
+                }
+            ],
+        },
+    )
+    bound = studio._bind_comparison_sources("nb", spec)
+    assert [p["source"] for p in bound["topics"][0]["positions"]] == ["real.txt"]
+
+
+def test_comparison_without_real_sources_refuses(monkeypatch):
+    monkeypatch.setattr(
+        studio,
+        "notebook_chunks",
+        lambda nb: [{"source_name": "real.txt", "page": None, "seq": 0, "text": "x"}],
+    )
+    spec = studio._validate_artifact_spec(
+        "comparison",
+        {
+            "title": "t",
+            "topics": [
+                {
+                    "topic": "T",
+                    "positions": [{"source": "ghost.txt", "stance": "agree", "claim": "c"}],
+                }
+            ],
+        },
+    )
+    with pytest.raises(studio.StudioError):
+        studio._bind_comparison_sources("nb", spec)
 
 
 # ---------- Phase 9: source-grounded knowledge graph ----------

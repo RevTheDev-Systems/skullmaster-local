@@ -22,10 +22,11 @@ subsystems plus the model fabric:
 - **Retrieval tuning** — act on the Phase 5 benchmark's multi-document Recall@3
   gap: chunk sizing, fusion weighting, and local reranking, measured against
   `evals/`.
+- **Source comparison** — ✅ delivered as a `comparison` Studio artifact:
+  topics with per-source positions (agree/differ/adds), each attributed to a
+  real source or dropped.
 - **Cross-notebook research** — search/synthesize across notebooks with
   citations, reusing the retrieval + grounded-answer path.
-- **Source comparison** — surface agreement/conflict between sources (the
-  conflicting-sources benchmark case is the seed).
 
 ## Mid term
 

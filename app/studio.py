@@ -223,6 +223,7 @@ ARTIFACT_PROMPTS = {
     "infographic": "infographic_spec",
     "spreadsheet": "spreadsheet_spec",
     "mindgraph": "mindgraph_spec",
+    "comparison": "comparison_spec",
     # Grounded text artifacts (local NotebookLM-style documents).
     "briefing": "briefing_spec",
     "study_guide": "study_guide_spec",
@@ -380,6 +381,9 @@ def _validate_artifact_spec(kind: str, spec: dict) -> dict:
         width = len(cols)
         spec["rows"] = [(list(r) + [""] * width)[:width] for r in rows]
 
+    elif kind == "comparison":
+        _validate_comparison(spec)
+
     elif kind in TEXT_ARTIFACT_KINDS:
         _validate_text_artifact(kind, spec)
 
@@ -387,6 +391,55 @@ def _validate_artifact_spec(kind: str, spec: dict) -> dict:
         raise StudioError(f"Unknown artifact kind: {kind}")
 
     spec.setdefault("source_note", "")
+    return spec
+
+
+def _validate_comparison(spec: dict) -> dict:
+    """Shape-check a source comparison; source names are verified later."""
+    topics = spec.get("topics")
+    if not isinstance(topics, list) or not 1 <= len(topics) <= 8:
+        raise ModelOutputError("topics must be a list of 1-8 entries")
+    clean = []
+    for topic in topics:
+        if (
+            not isinstance(topic, dict)
+            or not isinstance(topic.get("topic"), str)
+            or not topic["topic"].strip()
+        ):
+            raise ModelOutputError("each topic needs a name")
+        positions = topic.get("positions")
+        if not isinstance(positions, list) or not 1 <= len(positions) <= 6:
+            raise ModelOutputError(f"topic {topic['topic']!r} needs 1-6 positions")
+        clean_positions = []
+        for position in positions:
+            if not isinstance(position, dict):
+                raise ModelOutputError("each position must be an object")
+            stance = position.get("stance")
+            if stance not in ("agree", "differ", "adds"):
+                raise ModelOutputError("stance must be agree, differ, or adds")
+            clean_positions.append(
+                {
+                    "source": _clean_str(position.get("source"), "position.source"),
+                    "stance": stance,
+                    "claim": _clean_str(position.get("claim"), "position.claim"),
+                }
+            )
+        clean.append({"topic": topic["topic"].strip(), "positions": clean_positions})
+    spec["topics"] = clean
+    return spec
+
+
+def _bind_comparison_sources(notebook_id: str, spec: dict) -> dict:
+    """Keep only positions attributed to a real source; refuse if none remain."""
+    known = {c["source_name"].lower() for c in notebook_chunks(notebook_id)}
+    topics = []
+    for topic in spec["topics"]:
+        positions = [p for p in topic["positions"] if p["source"].lower() in known]
+        if positions:
+            topics.append({"topic": topic["topic"], "positions": positions})
+    if not topics:
+        raise StudioError("The model did not attribute the comparison to any real source")
+    spec["topics"] = topics
     return spec
 
 
@@ -450,6 +503,10 @@ def generate_artifact_spec(notebook_id: str, kind: str) -> dict:
                 # Bind every node to source evidence (visualization stays, but
                 # the graph becomes navigable and source-grounded).
                 spec["evidence"] = bind_evidence(notebook_id, spec)
+            elif kind == "comparison":
+                # Drop positions the model attributed to a source that doesn't
+                # exist; a comparison must reference real sources.
+                spec = _bind_comparison_sources(notebook_id, spec)
             return spec
         except StudioError:
             raise  # model correctly reported unusable sources — don't retry
