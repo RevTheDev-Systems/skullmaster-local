@@ -27,7 +27,8 @@ See `README.md` for usage and the architecture overview.
   (controlled vocabularies), bound to source evidence, explorable (pan/zoom,
   click-to-focus), and can span the whole library (cross-notebook graphs).
 - **Providers** — Ollama + MLX behind a capability router. Preferred vs. active
-  model, live discovery, provider states, cached metadata, failure isolation.
+  model, live discovery, provider states, cached metadata, failure isolation,
+  and consumer-aware routing with a fallback policy (`GET /api/models/route`).
 - **Authentication** — PBKDF2 password, server-side sessions, login throttling,
   loopback-first bind, timezone-aware expiry.
 - **Persistence** — SQLite + LanceDB + files; deletion cleans up; data survives

@@ -516,6 +516,52 @@ def test_capability_router_selects_by_capability():
     assert p.route("vision") is None
 
 
+def test_route_plan_capability_and_context_fallbacks():
+    p = _routing(_FakeOllama(), _FakeMLX(up=True))
+    p.chat_model = "ollama::chat"
+    p.list_models = lambda refresh=False: [
+        {"name": "ollama::chat", "can_chat": True, "can_reason": False, "context_length": 8000},
+        {
+            "name": "ollama::reasoner",
+            "can_chat": True,
+            "can_reason": True,
+            "context_length": 131072,
+        },
+        {
+            "name": "mlx::mlx-community/Thinker",
+            "can_chat": True,
+            "can_reason": True,
+            "context_length": None,
+        },
+    ]
+    # active model qualifies
+    plan = p.route_plan("chat")
+    assert plan["model"] == "ollama::chat"
+    assert plan["reason"] == "active model supports it"
+
+    # active lacks reasoning -> first capable, others listed as alternatives
+    plan = p.route_plan("reasoning")
+    assert plan["model"] == "ollama::reasoner"
+    assert "mlx::mlx-community/Thinker" in plan["alternatives"]
+
+    # a context threshold excludes low and unknown-context models
+    plan = p.route_plan("reasoning", min_context=100000)
+    assert plan["model"] == "ollama::reasoner"
+    assert plan["context_length"] == 131072
+
+    # nothing capable -> explicit miss with a reason
+    plan = p.route_plan("vision")
+    assert plan["model"] is None
+    assert "vision" in plan["reason"]
+
+
+def test_models_route_api_is_read_only(client):
+    res = client.get("/api/models/route", params={"capability": "reasoning"})
+    assert res.status_code == 200
+    body = res.json()
+    assert {"model", "reason", "alternatives"} <= set(body)
+
+
 def test_provider_states_reflect_backend_health():
     p = _routing(_FakeOllama(), _FakeMLX(up=False))
     states = p.provider_states()

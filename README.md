@@ -79,7 +79,10 @@ Models carry capability metadata — chat / reasoning / embedding / vision / too
 (`healthy` / `degraded` / `offline`). Per-model metadata is cached (300s), so a
 warm model list is a single `list()` call; the ⟳ button requests `?refresh=1` to
 bypass the cache after a model pull. Embedding-only models are filtered out,
-since they can't answer chat.
+since they can't answer chat. The router can also pick a model for a required
+capability (and optional minimum context) with a fallback policy — active model
+→ first capable model → explicit miss — read-only at
+`GET /api/models/route?capability=reasoning&min_context=32000`.
 
 A model going offline is not an application failure: if the saved preference's
 backend is unavailable, chat falls back to a reachable Ollama model, keeps the

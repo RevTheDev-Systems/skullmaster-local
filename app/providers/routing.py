@@ -35,6 +35,16 @@ def split(qualified: str) -> tuple[str, str]:
     return OLLAMA, qualified
 
 
+# Capability name -> model metadata flag.
+CAPABILITY_FLAGS = {
+    "chat": "can_chat",
+    "reasoning": "can_reason",
+    "embedding": "can_embed",
+    "vision": "can_vision",
+    "tools": "can_tools",
+}
+
+
 def _label(qualified: str) -> str:
     """`mlx::org/Model` -> `org/Model` for human-facing messages."""
     return split(qualified)[1]
@@ -199,18 +209,46 @@ class RoutingProvider:
         Capabilities: chat | reasoning | embedding | vision | tools. Returns a
         qualified model id or None. Embeddings still execute on Ollama.
         """
-        flag = {
-            "chat": "can_chat",
-            "reasoning": "can_reason",
-            "embedding": "can_embed",
-            "vision": "can_vision",
-            "tools": "can_tools",
-        }.get(capability, f"can_{capability}")
-        models = self.list_models()
+        return self.route_plan(capability)["model"]
+
+    def route_plan(self, capability: str = "chat", *, min_context: int | None = None) -> dict:
+        """Consumer-aware routing decision with a fallback policy.
+
+        Preference order: the active model (if capable) → the first capable
+        model → none. When `min_context` is set, models whose context length is
+        below the threshold (or unknown) are excluded. Read-only: it never
+        switches the active model.
+        """
+        flag = CAPABILITY_FLAGS.get(capability, f"can_{capability}")
+        models = [m for m in self.list_models() if m.get(flag)]
+        if min_context:
+            models = [m for m in models if (m.get("context_length") or 0) >= min_context]
+
         active = next((m for m in models if m.get("name") == self.chat_model), None)
-        if active and active.get(flag):
-            return self.chat_model
-        return next((m.get("name") for m in models if m.get(flag)), None)
+        if active:
+            model, reason = active, "active model supports it"
+        elif models:
+            model, reason = models[0], "first capable model"
+        else:
+            requirement = f"{capability}" + (
+                f" with context >= {min_context}" if min_context else ""
+            )
+            return {
+                "model": None,
+                "backend": None,
+                "capability": capability,
+                "reason": f"no installed model supports {requirement}",
+                "alternatives": [],
+            }
+
+        return {
+            "model": model["name"],
+            "backend": model.get("backend"),
+            "capability": capability,
+            "reason": reason,
+            "context_length": model.get("context_length"),
+            "alternatives": [m["name"] for m in models if m["name"] != model["name"]][:5],
+        }
 
     def registry(self, refresh: bool = False) -> dict:
         """Provider + model registry for the picker and diagnostics."""

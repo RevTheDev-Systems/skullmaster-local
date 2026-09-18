@@ -38,8 +38,9 @@ subsystems plus the model fabric:
   passage.
 - **More grounded Studio documents** — the local NotebookLM-style set beyond the
   current five, all inheriting the cite-or-refuse rule.
-- **Expanded capability router** — consumer-aware routing (chat/reasoning/
-  embedding/vision/tools, context length) with fallback policies.
+- **Expanded capability router** — ✅ consumer-aware routing with a fallback
+  policy (`route_plan` + `GET /api/models/route`): active model → first capable
+  model → explicit miss, with an optional minimum context length.
 
 ## Longer term (separate pipelines, deliberate)
 

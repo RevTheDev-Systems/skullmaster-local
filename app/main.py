@@ -369,6 +369,24 @@ def models_set_chat(body: ModelIn):
     }
 
 
+@app.get("/api/models/route")
+def models_route(capability: str = "chat", min_context: int | None = None):
+    """Consumer-aware routing decision (read-only): which model, and why."""
+    llm = get_llm()
+    plan = getattr(llm, "route_plan", None)
+    if not callable(plan):
+        return {
+            "model": llm.chat_model,
+            "capability": capability,
+            "reason": "provider does not expose routing",
+            "alternatives": [],
+        }
+    try:
+        return plan(capability, min_context=min_context)
+    except TypeError:
+        return plan(capability)
+
+
 # ---------- Notebooks ----------
 
 
