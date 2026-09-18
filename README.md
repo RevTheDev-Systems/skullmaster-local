@@ -17,6 +17,7 @@ via [Ollama](https://ollama.com). No cloud APIs, no telemetry, no tracking.
 - **Grounded documents** — Studio also writes a **briefing document, study guide, FAQ, timeline, and source summary** from your sources, each downloadable as Markdown; like every generator, they must cite the sources or refuse
 - **Slides** — a grounded slide deck (3–15 slides with titles, bullets, and speaker notes) with an in-app navigator and Markdown export
 - **Video Overview** — a narrated MP4 built from the slides: each slide is rendered to an image and voiced with local TTS, then muxed with ffmpeg (so it needs `ffmpeg` on PATH)
+- **Local tools (Phase 22)** — a safe, auditable tool layer (`calculator`, `days_between`, `convert`, `word_count`) at `GET /api/tools` / `POST /api/tools/run`; no code execution, strict validation
 - **Charts, infographics, spreadsheets, mind graphs & source comparison** — bar/line/pie charts, infographics, and mind graphs (downloadable as SVG), extracted data tables (downloadable as XLSX/CSV), and a source comparison that shows where sources agree, differ, or add detail (every position attributed to a real source); numbers are validated to come from the sources, and the model refuses when the notebook has no usable data
 - **Source-grounded knowledge graph** — the Mind Graph is a radial graph with **typed entities** (concept/organization/person/location/date/metric/event/document) and **typed relations** (causes/part_of/measures/located_at/enables/contradicts/precedes), coloured and labelled accordingly; every node and edge is bound to the exact source passage it came from in an Evidence list; pan/zoom and click-to-focus make it explorable, and **🧠 Graph** in the search modal builds one across all notebooks
 - **Persistent** — notebooks, sources, chat history, audio overviews, and artifacts survive refreshes and restarts
@@ -258,6 +259,7 @@ app/
   studio.py        podcast + all grounded artifacts (visual and text) + evidence binding
   slides.py        grounded slide-deck generation + PNG rendering (PyMuPDF)
   video.py         narrated Video Overview: slides + TTS + ffmpeg mux
+  tools.py         controlled local tools (calculator/dates/units/text)
   evaluation.py    deterministic RAG benchmark (python -m app.evaluation)
   benchmarks.py    local performance benchmarks (python -m app.benchmarks)
   auth.py          password hashing (PBKDF2), server-side sessions, login throttling

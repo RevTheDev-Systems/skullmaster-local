@@ -246,6 +246,11 @@ class LibraryGraphIn(BaseModel):
     notebook_ids: list[str] = []  # empty = all notebooks
 
 
+class ToolIn(BaseModel):
+    name: str
+    args: dict = {}
+
+
 # ---------- Health ----------
 
 
@@ -385,6 +390,29 @@ def models_route(capability: str = "chat", min_context: int | None = None):
         return plan(capability, min_context=min_context)
     except TypeError:
         return plan(capability)
+
+
+# ---------- Local tools (Phase 22) ----------
+
+
+@app.get("/api/tools")
+def tools_list():
+    """Catalog of the safe, local tools available to research workflows."""
+    from . import tools
+
+    return {"tools": tools.list_tools()}
+
+
+@app.post("/api/tools/run")
+def tools_run(body: ToolIn):
+    """Run one local tool with strict argument validation (no code execution)."""
+    from . import tools
+
+    try:
+        result = tools.run_tool(body.name, body.args)
+    except tools.ToolError as e:
+        raise HTTPException(422, str(e))
+    return {"name": body.name, "args": body.args, "result": result}
 
 
 # ---------- Notebooks ----------

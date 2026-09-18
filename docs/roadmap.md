@@ -49,8 +49,9 @@ subsystems plus the model fabric:
 - **Slides and Video Overviews** — ✅ delivered as distinct pipelines
   (`slides.py`, `video.py`), not bolted onto `studio.py`: grounded decks + a
   navigator, and a narrated MP4 (slide images + local TTS, muxed with ffmpeg).
-- **Controlled tool-using research workflows** — bounded, auditable tools under
-  the same local-first, source-grounded rules.
+- **Controlled tool-using research workflows** — 🟡 started: a safe, auditable
+  local tool registry (`app/tools.py`, `/api/tools`) with no code execution;
+  wiring tools into the grounded answer path (bounded, logged) is the next step.
 
 ## Principles
 

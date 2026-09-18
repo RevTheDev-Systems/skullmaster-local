@@ -39,6 +39,10 @@ See `README.md` for usage and the architecture overview.
 - **Slides & Video Overview** — a grounded slide deck (with an in-app navigator)
   and a narrated MP4 built from it (slide images + local TTS, muxed with ffmpeg;
   requires `ffmpeg` on PATH).
+- **Local tools (Phase 22)** — a controlled, auditable tool layer
+  (`calculator`, `days_between`, `convert`, `word_count`) with strict argument
+  validation and no code execution, exposed via `/api/tools` and
+  `/api/tools/run`. See `docs/tools.md`.
 - **Diagnostics** — `python -m app.diagnostics` (config classification, storage,
   SQLite, providers, TTS/STT, OCR).
 - **Backup/restore** — `python -m app.backup create|restore`: a coherent,
