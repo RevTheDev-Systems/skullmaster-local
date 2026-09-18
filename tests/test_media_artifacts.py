@@ -290,7 +290,7 @@ def test_generate_script_retries_and_ignores_broken_lines(monkeypatch):
                 {"speaker": "A", "text": "three"}, {"speaker": "B", "text": "four"}]})
 
     llm = LLM()
-    monkeypatch.setattr(studio, "_gather_context", lambda nb: "ctx")
+    monkeypatch.setattr(studio, "_gather_context", lambda nb, budget: "ctx")
     monkeypatch.setattr(studio, "get_llm", lambda: llm)
     out = studio.generate_script("nb")
     assert out["title"] == "Good" and len(out["lines"]) == 4
@@ -319,7 +319,7 @@ def test_generate_artifact_spec_retries_malformed_structures(monkeypatch, first)
     good = json.dumps({"title": "OK", "type": "bar",
                        "labels": ["a", "b"], "values": [1, 2]})
     llm = _artifact_llm([first, good])
-    monkeypatch.setattr(studio, "_gather_context", lambda nb: "ctx")
+    monkeypatch.setattr(studio, "_gather_context", lambda nb, budget: "ctx")
     monkeypatch.setattr(studio, "get_llm", lambda: llm)
     spec = studio.generate_artifact_spec("nb", "chart")
     assert spec["title"] == "OK" and spec["values"] == [1.0, 2.0]
@@ -328,7 +328,7 @@ def test_generate_artifact_spec_retries_malformed_structures(monkeypatch, first)
 
 def test_generate_artifact_spec_gives_up_with_studio_error(monkeypatch):
     llm = _artifact_llm(["[1,2,3]"])
-    monkeypatch.setattr(studio, "_gather_context", lambda nb: "ctx")
+    monkeypatch.setattr(studio, "_gather_context", lambda nb, budget: "ctx")
     monkeypatch.setattr(studio, "get_llm", lambda: llm)
     with pytest.raises(studio.StudioError):
         studio.generate_artifact_spec("nb", "chart")
@@ -337,7 +337,7 @@ def test_generate_artifact_spec_gives_up_with_studio_error(monkeypatch):
 
 def test_generate_artifact_spec_does_not_retry_model_refusal(monkeypatch):
     llm = _artifact_llm([json.dumps({"error": "not enough numeric data"})])
-    monkeypatch.setattr(studio, "_gather_context", lambda nb: "ctx")
+    monkeypatch.setattr(studio, "_gather_context", lambda nb, budget: "ctx")
     monkeypatch.setattr(studio, "get_llm", lambda: llm)
     with pytest.raises(studio.StudioError):
         studio.generate_artifact_spec("nb", "chart")
@@ -361,3 +361,26 @@ def test_validate_infographic_rejects_seven_stats():
             "title": "t",
             "stats": [{"value": str(i), "label": f"s{i}"} for i in range(7)],
             "sections": [{"heading": "h", "points": ["p"]}]})
+
+
+# ---------- Phase 3: explicit context budgets ----------
+
+def test_studio_generators_pass_explicit_context_budgets(monkeypatch):
+    from app.config import ARTIFACT_CONTEXT_CHARS, PODCAST_CONTEXT_CHARS
+
+    seen = []
+    monkeypatch.setattr(studio, "_gather_context",
+                        lambda nb, budget: seen.append(budget) or "ctx")
+
+    script_llm = _artifact_llm([json.dumps({"title": "t", "lines": [
+        {"speaker": "A", "text": "1"}, {"speaker": "B", "text": "2"},
+        {"speaker": "A", "text": "3"}, {"speaker": "B", "text": "4"}]})])
+    monkeypatch.setattr(studio, "get_llm", lambda: script_llm)
+    studio.generate_script("nb")
+    assert seen[-1] == PODCAST_CONTEXT_CHARS
+
+    chart_llm = _artifact_llm([json.dumps({
+        "title": "c", "type": "bar", "labels": ["a", "b"], "values": [1, 2]})])
+    monkeypatch.setattr(studio, "get_llm", lambda: chart_llm)
+    studio.generate_artifact_spec("nb", "chart")
+    assert seen[-1] == ARTIFACT_CONTEXT_CHARS

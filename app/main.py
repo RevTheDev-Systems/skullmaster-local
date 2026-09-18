@@ -30,6 +30,7 @@ from .config import (
     PROJECT_ROOT,
     SQLITE_PATH,
     UPLOADS_DIR,
+    config_report,
 )
 from .providers import get_llm, get_stt, get_tts
 from .rag import answer_stream, strip_invalid_citations
@@ -45,6 +46,14 @@ CHAT_MODEL_SETTING = "chat_model"
 async def lifespan(app: FastAPI):
     db.init_db()
     log.info("%s v%s starting", PRODUCT_NAME, APP_VERSION)
+    # Classify configuration up front — invalid values fall back to defaults and
+    # are logged, so a bad .env is visible without preventing startup.
+    problems = [r for r in config_report() if r["status"] == "invalid"]
+    if problems:
+        for p in problems:
+            log.error("Invalid configuration — %s: %s", p["name"], p["detail"])
+    else:
+        log.info("Configuration validated")
     llm = get_llm()
     # A model picked in the UI overrides the .env default for later runs.
     saved = db.get_setting(CHAT_MODEL_SETTING)

@@ -7,6 +7,7 @@ import time
 import wave
 
 from .config import (
+    ARTIFACT_CONTEXT_CHARS,
     AUDIO_DIR,
     PODCAST_CONTEXT_CHARS,
     TTS_VOICE_A,
@@ -38,8 +39,12 @@ class ModelOutputError(ValueError):
 
 # ---------- Script generation ----------
 
-def _gather_context(notebook_id: str) -> str:
-    """Concatenate the notebook's chunks (grouped by source) up to a budget."""
+def _gather_context(notebook_id: str, budget: int) -> str:
+    """Concatenate the notebook's chunks (grouped by source) up to `budget`.
+
+    The budget is passed explicitly so each generator can use its own strategy
+    (podcast script vs. artifact extraction) rather than a shared constant.
+    """
     rows = notebook_chunks(notebook_id)
     if not rows:
         raise StudioError("Notebook has no sources to talk about")
@@ -52,12 +57,12 @@ def _gather_context(notebook_id: str) -> str:
             header = f"\n\n===== SOURCE: {current_source} =====\n"
             parts.append(header)
             used += len(header)
-        take = r["text"][: max(0, PODCAST_CONTEXT_CHARS - used)]
+        take = r["text"][: max(0, budget - used)]
         if not take:
             break
         parts.append(take)
         used += len(take)
-        if used >= PODCAST_CONTEXT_CHARS:
+        if used >= budget:
             break
     return "".join(parts).strip()
 
@@ -97,7 +102,7 @@ def _text(value) -> str | None:
 
 def generate_script(notebook_id: str) -> dict:
     """Returns {"title": str, "lines": [{"speaker": "A"|"B", "text": str}, ...]}."""
-    context = _gather_context(notebook_id)
+    context = _gather_context(notebook_id, PODCAST_CONTEXT_CHARS)
     system = load_prompt("podcast_script").replace("{target_lines}", str(TARGET_LINES))
     messages = [
         {"role": "system", "content": system},
@@ -298,7 +303,7 @@ def generate_artifact_spec(notebook_id: str, kind: str) -> dict:
     """Grounded artifact spec via the LLM, validated; one retry on bad shape."""
     if kind not in ARTIFACT_PROMPTS:
         raise StudioError(f"Unknown artifact kind: {kind}")
-    context = _gather_context(notebook_id)
+    context = _gather_context(notebook_id, ARTIFACT_CONTEXT_CHARS)
     messages = [
         {"role": "system", "content": load_prompt(ARTIFACT_PROMPTS[kind])},
         {"role": "user", "content": f"Source material:\n\n{context}\n\nProduce the JSON now."},

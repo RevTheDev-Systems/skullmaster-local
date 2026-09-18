@@ -18,6 +18,7 @@ from .config import (
     SQLITE_PATH,
     TTS_MODEL,
     UPLOADS_DIR,
+    config_report,
 )
 from .config import STT_MODEL  # noqa: E402  (grouped with config imports above)
 from .providers import get_llm, get_stt, get_tts
@@ -37,7 +38,15 @@ def main() -> int:
     print(f"{PRODUCT_NAME} v{APP_VERSION} — diagnostics\n")
     ok = True
 
-    print("Storage")
+    print("Configuration")
+    for item in config_report():
+        if item["status"] == "invalid":
+            ok &= check(item["name"], False, item["detail"],
+                        "fix or remove this value in .env")
+        else:
+            ok &= check(f"{item['name']} ({item['status']})", True, item["detail"])
+
+    print("\nStorage")
     for label, path in (("data dir", DATA_DIR), ("uploads", UPLOADS_DIR),
                         ("vector store", LANCEDB_DIR), ("audio", AUDIO_DIR)):
         writable = path.exists() and path.is_dir()
