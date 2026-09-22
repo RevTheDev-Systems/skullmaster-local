@@ -1,6 +1,14 @@
 // SkullMaster iQ — login / first-run password setup
 const $ = (sel) => document.querySelector(sel);
 
+// Register the offline-shell service worker (secure context only), so the
+// installed app opens to the sign-in screen even with the server unreachable.
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/static/sw.js").catch(() => {});
+  });
+}
+
 // Match the app's theme preference so the two screens feel like one product.
 document.documentElement.dataset.theme =
   localStorage.getItem("skullmaster-theme") || "dark";

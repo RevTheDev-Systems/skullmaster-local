@@ -1,6 +1,15 @@
 // SkullMaster iQ — frontend
 const $ = (sel) => document.querySelector(sel);
 
+// Installable PWA: register the offline-shell service worker in a secure
+// context only (HTTPS — e.g. Tailscale Serve — or localhost). On plain-HTTP
+// LAN access the browser forbids it, so this silently no-ops.
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/static/sw.js").catch(() => {});
+  });
+}
+
 const state = {
   notebooks: [],
   current: null,        // notebook id

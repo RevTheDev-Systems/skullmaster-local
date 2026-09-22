@@ -392,6 +392,65 @@ def test_favicon_served(client):
     assert res.headers["content-type"].startswith("image/")
 
 
+def test_pwa_manifest_is_installable(anon_client):
+    res = anon_client.get("/static/manifest.webmanifest")
+    assert res.status_code == 200
+    manifest = res.json()
+    assert manifest["display"] == "standalone"
+    assert manifest["start_url"] == "/"
+    sizes = {icon["sizes"] for icon in manifest["icons"]}
+    assert {"192x192", "512x512"} <= sizes
+    assert any(icon.get("purpose") == "maskable" for icon in manifest["icons"])
+
+
+def test_pwa_icons_and_service_worker_are_served(anon_client):
+    for path in (
+        "/static/apple-touch-icon.png",
+        "/static/icon-192.png",
+        "/static/icon-512.png",
+        "/static/icon-maskable-512.png",
+    ):
+        res = anon_client.get(path)
+        assert res.status_code == 200, path
+        assert res.headers["content-type"].startswith("image/"), path
+    sw = anon_client.get("/static/sw.js")
+    assert sw.status_code == 200
+    assert "javascript" in sw.headers["content-type"]
+    # The worker must never touch private/dynamic traffic.
+    assert "/api/" in sw.text and "CACHE_VERSION" in sw.text
+
+
+def test_ios_standalone_meta_present(anon_client):
+    """Both surfaces must carry the iOS standalone metas so Add to Home Screen
+    produces a real app (no Safari chrome). /login is public; the app shell is
+    checked on disk since / requires a session."""
+    from pathlib import Path
+
+    login_html = anon_client.get("/login").text
+    app_html = (Path(__file__).resolve().parent.parent / "static" / "index.html").read_text()
+    for html in (login_html, app_html):
+        assert 'name="apple-mobile-web-app-capable"' in html
+        assert 'name="apple-mobile-web-app-status-bar-style"' in html
+        assert "black-translucent" in html
+        assert 'name="apple-mobile-web-app-title"' in html
+        assert "apple-touch-icon" in html
+
+
+def test_session_cookie_is_secure_only_over_https(client):
+    from tests.conftest import TEST_PASSWORD
+
+    # Plain HTTP (tests) → not Secure, so localhost dev keeps working.
+    res = client.post("/api/auth/login", json={"password": TEST_PASSWORD})
+    assert res.status_code == 200
+    assert "secure" not in res.headers["set-cookie"].lower()
+    # Behind a TLS-terminating proxy (Tailscale Serve) → Secure.
+    res = client.post(
+        "/api/auth/login", json={"password": TEST_PASSWORD}, headers={"x-forwarded-proto": "https"}
+    )
+    assert res.status_code == 200
+    assert "secure" in res.headers["set-cookie"].lower()
+
+
 def test_full_acceptance_journey(client, notebook):
     """The browser journey end-to-end at the API layer: login is implied by the
     authenticated client; ingest → chat+citations → artifacts/audio → delete →

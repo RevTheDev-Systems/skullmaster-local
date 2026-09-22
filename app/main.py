@@ -152,13 +152,27 @@ class PasswordIn(BaseModel):
     password: str
 
 
-def _set_session_cookie(response: Response, token: str):
+def _request_is_https(request: Request) -> bool:
+    """True when the client reached us over TLS — directly, or through a
+    TLS-terminating proxy that reports it (e.g. `tailscale serve`, which sets
+    X-Forwarded-Proto). Used to decide the session cookie's `Secure` flag."""
+    if request.url.scheme == "https":
+        return True
+    forwarded = request.headers.get("x-forwarded-proto", "")
+    return forwarded.split(",")[0].strip().lower() == "https"
+
+
+def _set_session_cookie(response: Response, token: str, request: Request | None = None):
     response.set_cookie(
         auth.COOKIE_NAME,
         token,
         max_age=auth.SESSION_DAYS * 24 * 3600,
         httponly=True,  # not readable from JavaScript
         samesite="lax",  # not sent on cross-site requests
+        # Secure only when actually on TLS (e.g. the Tailscale HTTPS URL), so a
+        # plain-HTTP localhost dev session still works. Over the internet the
+        # cookie is then never sent in cleartext.
+        secure=_request_is_https(request) if request is not None else False,
         path="/",
     )
 
@@ -180,7 +194,7 @@ def auth_status(request: Request):
 
 
 @app.post("/api/auth/setup")
-def auth_setup(body: PasswordIn, response: Response):
+def auth_setup(body: PasswordIn, request: Request, response: Response):
     """First-run: the owner chooses their password. Refused once one exists."""
     if not auth.setup_required():
         raise HTTPException(409, "A password has already been set")
@@ -188,7 +202,7 @@ def auth_setup(body: PasswordIn, response: Response):
         auth.set_password(body.password)
     except auth.AuthError as e:
         raise HTTPException(400, str(e))
-    _set_session_cookie(response, auth.create_session())
+    _set_session_cookie(response, auth.create_session(), request)
     log.info("Owner password created")
     return {"ok": True}
 
@@ -206,7 +220,7 @@ def auth_login(body: PasswordIn, request: Request, response: Response):
         log.warning("Failed login attempt from %s", client)
         raise HTTPException(401, "Incorrect password")
     auth.clear_failures(client)
-    _set_session_cookie(response, auth.create_session())
+    _set_session_cookie(response, auth.create_session(), request)
     return {"ok": True}
 
 

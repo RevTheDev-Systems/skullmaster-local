@@ -4,7 +4,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  /* Respect the notch/Dynamic Island in the installed iOS app. */
+  padding: max(24px, calc(env(safe-area-inset-top) + 12px)) 24px
+           max(24px, calc(env(safe-area-inset-bottom) + 12px));
 }
 
 .login-shell { width: 100%; display: flex; justify-content: center; }

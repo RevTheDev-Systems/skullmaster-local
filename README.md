@@ -123,6 +123,22 @@ with `open` (macOS) or `xdg-open` (Linux). Useful switches:
 On macOS, `scripts/install_app.sh` installs an app bundle into `~/Applications`
 that runs the launcher.
 
+### iPhone / iPad (installable app)
+
+SkullMaster iQ is an installable **PWA**: add it to the iOS Home Screen and it
+runs full-screen with its own icon — no App Store, no signing. It needs a secure
+context, so serve it over HTTPS with **Tailscale Serve** (a trusted
+`*.ts.net` certificate, no extra setup):
+
+```bash
+# .env: keep HOST=127.0.0.1 (Serve proxies to loopback — nothing on the LAN)
+tailscale serve --bg 8501        # → https://<machine>.<tailnet>.ts.net/
+```
+
+Then on the iPhone: open that **https://** URL in **Safari**, sign in, and
+**Share → Add to Home Screen**. Full steps, always-on launchd setup, and
+troubleshooting are in [`docs/iphone-app.md`](docs/iphone-app.md).
+
 ## Signing in
 
 The first time you open the app it shows **Create your password** — pick one
@@ -357,9 +373,9 @@ static/            three-panel web UI (Sources | Chat | Studio), vanilla JS
 tests/             pytest unit + integration suite (mock providers)
 evals/             RAG corpus + baseline, chunk sweep, performance baseline
 docs/              status, roadmap, security, performance, tools, vision, slides-video,
-                   docker, releasing, backup, naming, observability, browser acceptance,
-                   ingestion matrix, knowledge graph, git history, historical copies,
-                   releases/
+                   docker, releasing, iphone-app, backup, naming, observability,
+                   browser acceptance, ingestion matrix, knowledge graph, git history,
+                   historical copies, releases/
 data/              runtime state: uploads, LanceDB, SQLite, generated audio/artifacts
 models/            local TTS/STT weights
 scripts/           setup.sh (onboarding) · launcher.sh (start + open) · install_app.sh (macOS app)

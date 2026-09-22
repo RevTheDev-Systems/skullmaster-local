@@ -58,7 +58,9 @@ button { cursor: pointer; }
 
 .app-shell {
   min-height: 100%;
-  padding: 22px 22px 92px;
+  /* Clear the notch/Dynamic Island in the installed iOS app
+     (apple-mobile-web-app-status-bar-style=black-translucent). */
+  padding: max(22px, calc(env(safe-area-inset-top) + 8px)) 22px 92px;
   display: flex;
   flex-direction: column;
   gap: 18px;
