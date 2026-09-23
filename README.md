@@ -132,12 +132,17 @@ context, so serve it over HTTPS with **Tailscale Serve** (a trusted
 
 ```bash
 # .env: keep HOST=127.0.0.1 (Serve proxies to loopback — nothing on the LAN)
-tailscale serve --bg 8501        # → https://<machine>.<tailnet>.ts.net/
+tailscale serve --bg 8501                     # → https://<machine>.<tailnet>.ts.net/
+# If the root URL is already taken by another service, use a dedicated port:
+tailscale serve --bg --https=8443 http://127.0.0.1:8501
 ```
 
 Then on the iPhone: open that **https://** URL in **Safari**, sign in, and
-**Share → Add to Home Screen**. Full steps, always-on launchd setup, and
-troubleshooting are in [`docs/iphone-app.md`](docs/iphone-app.md).
+**Share → Add to Home Screen**. For "it just works", keep the server running at
+login with the launchd LaunchAgent in the doc (remember the `PATH` entry, or
+`ffmpeg`/`tesseract` won't be found). Full steps, a recorded reference
+configuration, troubleshooting, and undo commands are in
+[`docs/iphone-app.md`](docs/iphone-app.md).
 
 ## Signing in
 

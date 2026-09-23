@@ -44,18 +44,47 @@ for the tailnet. (Tailscale uses Let's Encrypt for `*.ts.net`.)
 On the Mac running SkullMaster:
 
 ```bash
-tailscale serve --bg 8501          # older syntax: tailscale serve --bg http://127.0.0.1:8501
-tailscale serve status             # shows the https://…ts.net URL it created
+tailscale serve status              # FIRST: see what the tailnet already serves
+tailscale serve --bg 8501           # serve at the root: https://<machine>.<tailnet>.ts.net/
 ```
 
 You'll get something like `https://<machine>.<tailnet>.ts.net/`. Use your `PORT`
 if you changed it from 8501.
 
+#### If the root URL is already taken
+
+`tailscale serve` maps **one** service per HTTPS port, so if something else
+already owns `/` you must **not** overwrite it. Check first:
+
+```bash
+tailscale serve status
+# https://maxine.royal-gacrux.ts.net (tailnet only)
+# |-- / proxy http://127.0.0.1:3737      ← another local service owns the root
+```
+
+Give SkullMaster **its own HTTPS port** instead — non-destructive, and the app
+still gets a clean origin with scope `/`:
+
+```bash
+tailscale serve --bg --https=8443 http://127.0.0.1:8501
+tailscale serve status
+# https://maxine.royal-gacrux.ts.net:8443 (tailnet only)
+# |-- / proxy http://127.0.0.1:8501      ← SkullMaster iQ
+```
+
+Use **`https://<machine>.<tailnet>.ts.net:8443/`** on the iPhone. Any free
+HTTPS port works (`9443`, …).
+
+> **Do not use `--set-path /skullmaster`.** A sub-path breaks the app's absolute
+> URLs (`/static/…`, `/api/…`, the manifest's `start_url`/`scope`), so the PWA
+> would not install correctly. Use a dedicated port, or repoint the root (which
+> replaces the other service).
+
 ### 4. Install it on the iPhone
 
 1. Make sure the iPhone is on the tailnet (Tailscale app connected).
-2. Open the `https://<machine>.<tailnet>.ts.net/` URL **in Safari** (not Chrome —
-   only Safari can add to the Home Screen on iOS).
+2. Open the app's `https://…` URL **in Safari** (not Chrome — only Safari can
+   add to the Home Screen on iOS).
 3. Sign in with your owner password.
 4. **Share → Add to Home Screen** → name it "SkullMaster" → Add.
 
@@ -91,6 +120,13 @@ run it at login with a LaunchAgent (`~/Library/LaunchAgents/iq.skullmaster.serve
     <string>app</string>
   </array>
   <key>WorkingDirectory</key><string>/Users/revenueroy/skullmaster-iq</string>
+  <!-- launchd starts with a minimal PATH. Without Homebrew on it, the app
+       cannot find ffmpeg (Video Overviews) or tesseract (OCR) at runtime. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>/Users/revenueroy/skullmaster-iq/data/server.log</string>
@@ -100,10 +136,49 @@ run it at login with a LaunchAgent (`~/Library/LaunchAgents/iq.skullmaster.serve
 ```
 
 ```bash
-launchctl load ~/Library/LaunchAgents/iq.skullmaster.server.plist
+launchctl unload ~/Library/LaunchAgents/iq.skullmaster.server.plist 2>/dev/null
+launchctl load   ~/Library/LaunchAgents/iq.skullmaster.server.plist
+launchctl list | grep skullmaster          # → <pid>  0  iq.skullmaster.server
+curl -s http://127.0.0.1:8501/healthz      # → {"status":"alive",...}
 ```
 
-(Also keep Ollama running the same way, since chat/embeddings depend on it.)
+`RunAtLoad` starts it at login; `KeepAlive` restarts it if it exits. `launchctl
+unload …` is the off switch. (Also keep Ollama running, since chat/embeddings
+depend on it.)
+
+## Recorded configuration (this deployment)
+
+Captured 2026-09-22 so the setup is reproducible and auditable.
+
+| Item | Value |
+|---|---|
+| Tailnet DNS name | `maxine.royal-gacrux.ts.net` |
+| App bind address | `127.0.0.1:8501` (loopback only — not on the LAN) |
+| iPhone URL | `https://maxine.royal-gacrux.ts.net:8443/` |
+| Serve rule | `--https=8443` → `http://127.0.0.1:8501` |
+| Pre-existing serve (untouched) | `--https=443` root → `http://127.0.0.1:3737` |
+| Always-on agent | `~/Library/LaunchAgents/iq.skullmaster.server.plist` (label `iq.skullmaster.server`) |
+| Logs | `~/skullmaster-iq/data/server.log` |
+
+Verification performed (all passing):
+
+```bash
+tailscale serve status                                   # both mappings present
+curl -sS https://maxine.royal-gacrux.ts.net:8443/healthz # 200, TLS verified, v1.7.0
+curl -sS -o /dev/null -w '%{http_code} %{content_type}\n' \
+  https://maxine.royal-gacrux.ts.net:8443/static/manifest.webmanifest  # 200 application/manifest+json
+curl -sS -o /dev/null -w '%{http_code} %{content_type}\n' \
+  https://maxine.royal-gacrux.ts.net:8443/static/sw.js                 # 200 text/javascript
+curl -sS -o /dev/null -w '%{http_code} -> %{redirect_url}\n' \
+  -H 'accept: text/html' https://maxine.royal-gacrux.ts.net:8443/      # 303 -> /login
+```
+
+Undo:
+
+```bash
+tailscale serve --https=8443 off
+launchctl unload ~/Library/LaunchAgents/iq.skullmaster.server.plist
+```
 
 ## Updating the installed app
 
@@ -119,6 +194,8 @@ worker serves navigations network-first. If a UI change ever looks stale, bump
 | "Add to Home Screen" missing | You're in Chrome/Firefox, or on a Private tab. Use Safari. |
 | App loads but sign-in fails | The server isn't running, or `HOST`/`PORT` don't match what Serve proxies to. Check `tailscale serve status` and `python -m app.diagnostics`. |
 | Tailscale URL won't load | MagicDNS/HTTPS not enabled, or the iPhone's Tailscale is disconnected. |
+| Root URL shows a *different* app | Another local service owns `/` (check `tailscale serve status`). Use the dedicated-port URL, e.g. `:8443`. |
+| Video Overviews / OCR stop working after installing launchd | The LaunchAgent's `PATH` lacks Homebrew, so `ffmpeg`/`tesseract` aren't found. Add the `EnvironmentVariables` block above and reload. |
 | Stale UI after an update | Bump `CACHE_VERSION` in `static/sw.js`. |
 | Answers missing/old | Expected: the worker never caches API responses; if you see old answers, you're reading a cached *page*, not a cached answer — reload. |
 
