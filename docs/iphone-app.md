@@ -146,6 +146,34 @@ curl -s http://127.0.0.1:8501/healthz      # → {"status":"alive",...}
 unload …` is the off switch. (Also keep Ollama running, since chat/embeddings
 depend on it.)
 
+### After changing code: restart, or the route serves the old build
+
+`tailscale serve` is a **live proxy** to `127.0.0.1:8501` — it does not cache and
+it does not watch the working tree. It serves whatever the *running* process
+serves. `KeepAlive` only restarts the process if it **exits**, so a code change
+(Python or `static/`) is picked up by the iPhone app **only after a restart**:
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/iq.skullmaster.server"
+```
+
+`-k` kills the current process and launchd starts a fresh one, which re-imports
+the code and re-reads `static/` from disk. Then confirm the route really is
+serving the current build (not a stale one):
+
+```bash
+# a served static asset must hash-match the file on disk
+curl -sS https://maxine.royal-gacrux.ts.net:8443/static/app.js | shasum -a 256
+shasum -a 256 static/app.js
+```
+
+**Python changes require the restart** — the process must re-import them.
+`/static/*` is read from disk per request, so the server serves the new asset
+immediately, but the PWA's service worker is *stale-while-revalidate*: the phone
+may show the previous asset for one load and pick up the new one on the next
+(bump `CACHE_VERSION` in `static/sw.js` for a material shell change). When in
+doubt, restart: it is cheap and idempotent.
+
 ## Recorded configuration (this deployment)
 
 Captured 2026-09-22 so the setup is reproducible and auditable.
