@@ -30,9 +30,18 @@ take a **caption-track** route instead (`app/ingest.py: parse_youtube`):
   each carrying its **start second** — so citations are timestamped and the
   citation's play action opens the video at the cited moment.
 - The title comes from YouTube's oEmbed endpoint (no API key, no scraping).
-- **Captions disabled / private / region-blocked** → a clear `IngestError`
-  (HTTP 422). Downloading the audio and running it through Whisper is a
-  deliberate, separate opt-in — never a silent default.
+- **Captions disabled** → the **audio fallback** runs: `yt-dlp` downloads just
+  the audio track and the same local Whisper pipeline used for uploaded media
+  transcribes it, producing timestamped blocks. The temporary download is
+  deleted immediately; only the transcript is kept.
+  - Controlled by `YOUTUBE_TRANSCRIBE_FALLBACK` (`auto` = only when `yt-dlp` is
+    installed, `true` = insist, `false` = never download). With it disabled, a
+    captions-free video returns a clear `IngestError` (HTTP 422).
+  - **Bounded before download:** the video's duration is checked first, and a
+    video longer than `YOUTUBE_MAX_MINUTES` (default 120) is refused — no bytes
+    are fetched. Playlists are never expanded (`noplaylist`), so a playlist link
+    cannot pull gigabytes.
+- **Private / region-blocked** → a clear `IngestError` (HTTP 422).
 - A video with no captions is *not* silently ingested as boilerplate.
 
 ## Policies

@@ -5,6 +5,8 @@ has both a valid sample and a deliberately broken sample, and the documented
 matrix is asserted against the parser.
 """
 
+import sys
+import types
 import urllib.error
 
 import fitz
@@ -14,6 +16,24 @@ from openpyxl import Workbook
 
 from app import ingest
 from app.chunker import chunk_segments
+
+
+@pytest.fixture(autouse=True)
+def _no_real_youtube_network(monkeypatch):
+    """YouTube tests must never reach the network: stub the oEmbed title lookup
+    and block the audio downloader. Tests that exercise either patch it again."""
+
+    def _blocked(url, video_id, max_minutes):
+        raise AssertionError("test attempted a real YouTube audio download")
+
+    monkeypatch.setattr(ingest, "_youtube_download_audio", _blocked)
+    monkeypatch.setattr(ingest, "_youtube_title", lambda url, vid: f"YouTube video {vid}")
+
+
+# The genuine downloader, kept before the autouse guard replaces it, so the few
+# tests that exercise its internals can call it directly with a fake yt-dlp.
+_REAL_DOWNLOAD = ingest._youtube_download_audio
+
 
 # ---------- fixture builders ----------
 
@@ -455,14 +475,143 @@ def test_parse_youtube_groups_dense_snippets_into_one_block(monkeypatch):
 
 def test_parse_youtube_without_captions_fails_clearly(monkeypatch):
     _patch_transcript_api(monkeypatch, error=RuntimeError("no transcript found"))
+    monkeypatch.setattr(ingest, "youtube_fallback_configured", lambda: False)
     with pytest.raises(ingest.IngestError, match="captions"):
         ingest.parse_youtube("https://www.youtube.com/watch?v=aircAruvnKk")
 
 
 def test_parse_youtube_empty_transcript_fails(monkeypatch):
     _patch_transcript_api(monkeypatch, snippets=[])
+    monkeypatch.setattr(ingest, "youtube_fallback_configured", lambda: False)
     with pytest.raises(ingest.IngestError, match="empty transcript"):
         ingest.parse_youtube("https://www.youtube.com/watch?v=aircAruvnKk")
+
+
+def test_youtube_captions_win_and_skip_the_download(monkeypatch):
+    """Captions are preferred: a captioned video must never download audio."""
+    _patch_transcript_api(monkeypatch, snippets=[_Snippet(0.0, "Captions are here.")])
+    monkeypatch.setattr(ingest, "_youtube_title", lambda url, vid: "T")
+    monkeypatch.setattr(ingest, "youtube_fallback_configured", lambda: True)
+    _, segments = ingest.parse_youtube("https://youtu.be/aircAruvnKk")
+    assert segments == [(0, "Captions are here.")]
+
+
+def test_youtube_without_captions_falls_back_to_local_transcription(monkeypatch, tmp_path):
+    """No captions → download the audio, transcribe it locally, keep timestamps."""
+    _patch_transcript_api(monkeypatch, error=RuntimeError("no transcript found"))
+    monkeypatch.setattr(ingest, "_youtube_title", lambda url, vid: "Captioned-less — Chan")
+    monkeypatch.setattr(ingest, "youtube_fallback_configured", lambda: True)
+    workdir = tmp_path / "dl"
+    workdir.mkdir()
+    audio = workdir / "aircAruvnKk.webm"
+    audio.write_bytes(b"fake audio bytes")
+    monkeypatch.setattr(ingest, "_youtube_download_audio", lambda *a: audio)
+    long_line = "spoken words " * 300  # exceeds CHUNK_CHARS, forcing a second block
+    monkeypatch.setattr(
+        ingest,
+        "get_stt",
+        lambda: types.SimpleNamespace(
+            transcribe=lambda path: [
+                {"start": 0.0, "end": 2.0, "text": long_line.strip()},
+                {"start": 90.0, "end": 92.0, "text": "A later sentence."},
+            ]
+        ),
+    )
+    title, segments = ingest.parse_youtube("https://www.youtube.com/watch?v=aircAruvnKk")
+    assert title == "Captioned-less — Chan"
+    # local transcription keeps the timestamps, exactly like uploaded media
+    assert [sec for sec, _ in segments] == [0, 90]
+    assert "spoken words" in segments[0][1]
+    assert "A later sentence." in segments[1][1]
+    # the temporary download is removed; only the transcript survives
+    assert not workdir.exists()
+
+
+def test_youtube_fallback_can_be_disabled(monkeypatch):
+    _patch_transcript_api(monkeypatch, error=RuntimeError("no transcript found"))
+    monkeypatch.setattr(ingest, "youtube_fallback_configured", lambda: False)
+    with pytest.raises(ingest.IngestError, match="fallback disabled"):
+        ingest.parse_youtube("https://youtu.be/aircAruvnKk")
+
+
+def test_youtube_fallback_without_speech_fails(monkeypatch, tmp_path):
+    _patch_transcript_api(monkeypatch, error=RuntimeError("no transcript found"))
+    monkeypatch.setattr(ingest, "youtube_fallback_configured", lambda: True)
+    workdir = tmp_path / "dl"
+    workdir.mkdir()
+    monkeypatch.setattr(ingest, "_youtube_download_audio", lambda *a: workdir / "a.webm")
+    monkeypatch.setattr(
+        ingest, "get_stt", lambda: types.SimpleNamespace(transcribe=lambda path: [])
+    )
+    with pytest.raises(ingest.IngestError, match="No speech detected"):
+        ingest.parse_youtube("https://youtu.be/aircAruvnKk")
+    assert not workdir.exists()  # temp download cleaned up even on failure
+
+
+def test_youtube_audio_duration_is_capped_before_downloading(monkeypatch):
+    """A long video is refused before any bytes are fetched."""
+    downloaded = []
+
+    class _FakeYDL:
+        def __init__(self, options):
+            self.options = options
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def extract_info(self, url, download=False):
+            return {"duration": 3 * 60 * 60}
+
+        def download(self, urls):
+            downloaded.append(urls)
+
+    monkeypatch.setattr(ingest, "_youtube_download_audio", _REAL_DOWNLOAD)
+    monkeypatch.setitem(sys.modules, "yt_dlp", types.SimpleNamespace(YoutubeDL=_FakeYDL))
+    with pytest.raises(ingest.IngestError, match="capped at 120 minutes"):
+        ingest._youtube_download_audio("https://youtu.be/aircAruvnKk", "aircAruvnKk", 120)
+    assert not downloaded
+
+
+def test_youtube_audio_download_returns_the_audio_file(monkeypatch):
+    seen = {}
+
+    class _FakeYDL:
+        def __init__(self, options):
+            self.options = options
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def extract_info(self, url, download=False):
+            return {"duration": 60}
+
+        def download(self, urls):
+            seen["urls"] = urls
+            seen["options"] = self.options
+            target = ingest.Path(self.options["outtmpl"].replace("%(id)s", "aircAruvnKk"))
+            target.with_suffix(".webm").write_bytes(b"audio")
+            # a leftover .part file must be ignored when choosing the result
+            target.with_suffix(".webm.part").write_bytes(b"partial")
+
+    monkeypatch.setattr(ingest, "_youtube_download_audio", _REAL_DOWNLOAD)
+    monkeypatch.setitem(sys.modules, "yt_dlp", types.SimpleNamespace(YoutubeDL=_FakeYDL))
+    path = ingest._youtube_download_audio("https://youtu.be/aircAruvnKk", "aircAruvnKk", 120)
+    assert path.name == "aircAruvnKk.webm" and path.read_bytes() == b"audio"
+    assert seen["urls"] == ["https://youtu.be/aircAruvnKk"]
+    assert seen["options"]["noplaylist"] is True  # never expand a playlist link
+
+
+def test_youtube_audio_download_reports_missing_yt_dlp(monkeypatch):
+    monkeypatch.setattr(ingest, "_youtube_download_audio", _REAL_DOWNLOAD)
+    monkeypatch.setitem(sys.modules, "yt_dlp", None)  # import yt_dlp -> ImportError
+    with pytest.raises(ingest.IngestError, match="yt-dlp"):
+        ingest._youtube_download_audio("https://youtu.be/aircAruvnKk", "aircAruvnKk", 120)
 
 
 def test_parse_url_routes_youtube_to_transcripts(monkeypatch):

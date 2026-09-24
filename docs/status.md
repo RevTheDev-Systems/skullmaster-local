@@ -8,7 +8,10 @@ See `README.md` for usage and the architecture overview.
 - **Ingestion** — PDF (page numbers), DOCX (structure + tables), XLSX/XLSM
   (sheet/row), TXT/MD/RST/CSV/TSV/JSON, HTML, and URL; **YouTube URLs ingest the
   caption transcript** with timestamps (citations open the video at the cited
-  moment); audio/video transcription with timestamps. Article pages that yield
+  moment), and videos with captions disabled fall back to downloading just the
+  audio (`yt-dlp`) and transcribing it locally with Whisper (bounded by
+  `YOUTUBE_MAX_MINUTES`, switchable via `YOUTUBE_TRANSCRIBE_FALLBACK`);
+  audio/video transcription with timestamps. Article pages that yield
   only boilerplate are refused, not ingested. All parse failures are
   `IngestError` → HTTP 422. Matrix and fixtures: `docs/ingestion-matrix.md`,
   `tests/test_ingest.py`.

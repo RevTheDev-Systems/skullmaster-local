@@ -57,6 +57,15 @@ def test_report_flags_invalid_raw_env_even_after_fallback(monkeypatch):
     assert status["MLX_REQUEST_TIMEOUT"] == "invalid"
 
 
+def test_youtube_fallback_switch_and_cap(monkeypatch):
+    for value, expected in [("auto", True), ("true", True), ("off", False), ("0", False)]:
+        monkeypatch.setattr(config, "YOUTUBE_FALLBACK", value)
+        assert config.youtube_fallback_configured() is expected
+    monkeypatch.setenv("YOUTUBE_MAX_MINUTES", "0")
+    status = {r["name"]: r["status"] for r in config.config_report()}
+    assert status["YOUTUBE_MAX_MINUTES"] == "invalid"
+
+
 def test_entrypoint_binds_configured_host_and_port(monkeypatch):
     import app.__main__ as entry
 

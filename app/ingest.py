@@ -7,7 +7,10 @@ extracted text is stored locally; nothing is re-fetched at runtime.
 """
 
 import json
+import logging
 import re
+import shutil
+import tempfile
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
@@ -27,6 +30,8 @@ from .config import (
     URL_MAX_BYTES,
 )
 from .providers import get_stt
+
+log = logging.getLogger(__name__)
 
 TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".rst", ".csv", ".tsv", ".json"}
 HTML_SUFFIXES = {".html", ".htm"}
@@ -341,19 +346,10 @@ def parse_sheet(path: Path) -> list[tuple[int | None, str]]:
     return [(None, "\n\n".join(parts))]
 
 
-def parse_media(path: Path) -> list[tuple[int | None, str]]:
-    """Transcribe a video/audio file. Segments carry the start second of their
-    first spoken words in the page slot, so citations can seek playback."""
-    try:
-        segments = get_stt().transcribe(str(path))
-    except IngestError:
-        raise
-    except Exception as e:
-        raise IngestError(f"Transcription failed: {e}") from e
-    if not segments:
-        raise IngestError("No speech detected in this file")
-    # pack short whisper segments into ~chunk-sized blocks, keeping the
-    # start time of each block's first segment
+def _pack_transcript(segments: list[dict]) -> list[tuple[int | None, str]]:
+    """Pack short STT/caption segments into ~chunk-sized blocks, keeping the
+    start second of each block's first segment in the page slot so citations can
+    seek playback. Shared by uploaded media and the YouTube fallback."""
     out: list[tuple[int | None, str]] = []
     buf, buf_start = "", 0
     for seg in segments:
@@ -368,6 +364,20 @@ def parse_media(path: Path) -> list[tuple[int | None, str]]:
     if buf:
         out.append((buf_start, buf))
     return out
+
+
+def parse_media(path: Path) -> list[tuple[int | None, str]]:
+    """Transcribe a video/audio file. Segments carry the start second of their
+    first spoken words in the page slot, so citations can seek playback."""
+    try:
+        segments = get_stt().transcribe(str(path))
+    except IngestError:
+        raise
+    except Exception as e:
+        raise IngestError(f"Transcription failed: {e}") from e
+    if not segments:
+        raise IngestError("No speech detected in this file")
+    return _pack_transcript(segments)
 
 
 def parse_text_file(path: Path) -> list[tuple[int | None, str]]:
@@ -448,18 +458,15 @@ def _youtube_title(url: str, video_id: str) -> str:
     return f"YouTube video {video_id}"
 
 
-def parse_youtube(url: str) -> tuple[str, list[tuple[int | None, str]]]:
-    """Pull a YouTube video's caption track as a timestamped transcript.
+def youtube_fallback_configured() -> bool:
+    """Whether the captions-free audio-transcription fallback may run."""
+    from .config import youtube_fallback_configured as _configured
 
-    Captions ARE the transcription: manual and auto-generated tracks both come
-    back, so the video's actual spoken content becomes a searchable, citable
-    source with timestamps. Videos with captions disabled, or that are private
-    or region-blocked, raise a clear error (downloading audio and running it
-    through Whisper is a separate, deliberate opt-in — not a silent default).
-    """
-    video_id = youtube_video_id(url)
-    if not video_id:
-        raise IngestError(f"Not a YouTube video URL: {url}")
+    return _configured()
+
+
+def _youtube_caption_segments(video_id: str) -> list[tuple[int | None, str]]:
+    """The video's caption track as timestamped blocks (raises when absent)."""
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
     except Exception as e:  # pragma: no cover - dependency is declared
@@ -497,7 +504,102 @@ def parse_youtube(url: str) -> tuple[str, list[tuple[int | None, str]]]:
         segments.append((block_start, " ".join(buffer)))
     if not segments:
         raise IngestError("YouTube transcript contained no usable text")
-    return _youtube_title(url, video_id), segments
+    return segments
+
+
+def _youtube_download_audio(url: str, video_id: str, max_minutes: int) -> Path:
+    """Download just the audio track with yt-dlp into a fresh temp dir.
+
+    Duration is checked before downloading and playlists are never expanded, so a
+    link to a 3-hour stream or a playlist cannot silently pull gigabytes.
+    """
+    try:
+        from yt_dlp import YoutubeDL
+    except Exception as e:
+        raise IngestError("Transcribing a video without captions needs the 'yt-dlp' package") from e
+    workdir = Path(tempfile.mkdtemp(prefix="skullmaster-youtube-"))
+    options = {
+        "format": "bestaudio/best",
+        "outtmpl": str(workdir / "%(id)s.%(ext)s"),
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+        "noplaylist": True,  # a playlist URL must not pull the playlist
+        "socket_timeout": 30,
+        "retries": 2,
+    }
+    try:
+        with YoutubeDL(options) as ydl:
+            info = ydl.extract_info(url, download=False) or {}
+            duration = int(info.get("duration") or 0)
+            if duration and duration > max_minutes * 60:
+                raise IngestError(
+                    f"This video is {duration // 60} minutes long; the transcription "
+                    f"fallback is capped at {max_minutes} minutes "
+                    "(raise YOUTUBE_MAX_MINUTES to allow longer videos)."
+                )
+            ydl.download([url])
+    except IngestError:
+        raise
+    except Exception as e:
+        raise IngestError(f"Could not download the video's audio: {e}") from e
+    files = [
+        p for p in workdir.iterdir() if p.is_file() and not p.name.endswith((".part", ".ytdl"))
+    ]
+    if not files:
+        raise IngestError("yt-dlp produced no audio file")
+    return max(files, key=lambda p: p.stat().st_size)
+
+
+def _youtube_transcribe_audio(url: str, video_id: str) -> list[tuple[int | None, str]]:
+    """Captions-free fallback: download the audio, transcribe it locally.
+
+    Uses the same local Whisper pipeline as uploaded media, so the video's
+    spoken content becomes a timestamped, citable source. The temporary download
+    is deleted immediately afterwards — only the transcript is kept.
+    """
+    from .config import YOUTUBE_MAX_MINUTES
+
+    log.info("No captions for %s — downloading audio to transcribe locally", video_id)
+    workdir: Path | None = None
+    try:
+        audio = _youtube_download_audio(url, video_id, YOUTUBE_MAX_MINUTES)
+        workdir = audio.parent
+        segments = get_stt().transcribe(str(audio))
+    except IngestError:
+        raise
+    except Exception as e:
+        raise IngestError(f"Could not transcribe the downloaded audio: {e}") from e
+    finally:
+        if workdir is not None:
+            shutil.rmtree(workdir, ignore_errors=True)
+    if not segments:
+        raise IngestError("No speech detected in this video's audio")
+    return _pack_transcript(segments)
+
+
+def parse_youtube(url: str) -> tuple[str, list[tuple[int | None, str]]]:
+    """Pull a YouTube video's spoken content as a timestamped transcript.
+
+    The caption track is used first (fast, no download; manual and auto-generated
+    both count). When a video has no captions, the audio is downloaded with
+    yt-dlp and transcribed locally by the same Whisper pipeline used for uploaded
+    media — unless the fallback is disabled (YOUTUBE_TRANSCRIBE_FALLBACK=false).
+    """
+    video_id = youtube_video_id(url)
+    if not video_id:
+        raise IngestError(f"Not a YouTube video URL: {url}")
+    title = _youtube_title(url, video_id)
+    try:
+        return title, _youtube_caption_segments(video_id)
+    except IngestError as caption_error:
+        if not youtube_fallback_configured():
+            raise IngestError(
+                f"{caption_error} (audio-transcription fallback disabled: set "
+                "YOUTUBE_TRANSCRIBE_FALLBACK=auto to enable it)"
+            ) from caption_error
+        log.info("YouTube captions unavailable (%s); using audio transcription", caption_error)
+        return title, _youtube_transcribe_audio(url, video_id)
 
 
 def _fetch_url(url: str) -> str:

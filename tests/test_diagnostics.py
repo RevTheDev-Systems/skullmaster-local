@@ -13,6 +13,7 @@ def test_diagnostics_reports_all_sections(capsys):
         "LLM backend",
         "TTS backend",
         "STT backend",
+        "YouTube",
         "Server",
     ):
         assert section in out, section

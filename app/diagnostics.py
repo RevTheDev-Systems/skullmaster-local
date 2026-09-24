@@ -14,7 +14,7 @@ import socket
 import sys
 import tempfile
 
-from . import db, ocr, store, vision
+from . import db, ingest, ocr, store, vision
 from .config import (
     APP_VERSION,
     AUDIO_DIR,
@@ -227,6 +227,25 @@ def main() -> int:
             stt.get("detail", ""),
             "set STT_MODEL=whisper-<tiny|base|small|medium|large-v3> in .env",
         )
+
+    print("\nYouTube (captions, with optional audio fallback)")
+    if not ingest.youtube_fallback_configured():
+        check("youtube fallback", True, "disabled — captions-only (YOUTUBE_TRANSCRIBE_FALLBACK)")
+    else:
+        try:
+            import yt_dlp  # noqa: F401
+
+            check(
+                "youtube fallback",
+                True,
+                "yt-dlp present — captions-free videos are transcribed locally",
+            )
+        except Exception:
+            warn(
+                "youtube fallback",
+                "yt-dlp not installed",
+                "uv add yt-dlp (or set YOUTUBE_TRANSCRIBE_FALLBACK=false)",
+            )
 
     print("\nOCR (optional, scanned PDFs)")
     engine = ocr.engine_name()

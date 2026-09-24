@@ -10,7 +10,7 @@ graphs, documents, slides, video) — running entirely on your machine via
 ## Features
 
 - **Notebooks & sources** — upload PDF, DOCX, XLSX/XLSM, TXT/MD/RST/CSV/TSV/JSON, HTML, images, video, or audio files, or add URLs; multiple sources per notebook
-- **YouTube videos** — a YouTube URL ingests the video's **caption transcript** (manual or auto-generated) as timestamped, searchable, citable text — not the page chrome; a citation opens the video at the cited moment. Videos with captions disabled are refused with a clear message (no silent junk)
+- **YouTube videos** — a YouTube URL ingests the video's **caption transcript** (manual or auto-generated) as timestamped, searchable, citable text — not the page chrome; a citation opens the video at the cited moment. A video with captions disabled falls back to downloading just its **audio** (`yt-dlp`) and transcribing it locally with the same Whisper pipeline, bounded by `YOUTUBE_MAX_MINUTES` (default 120) and switchable via `YOUTUBE_TRANSCRIBE_FALLBACK` (no silent junk)
 - **Video & audio sources** — uploads are transcribed locally with Whisper, playable in-app, and fully searchable in chat; media citations carry timestamps and a "Play from" button that seeks the player to the cited moment
 - **Scanned PDFs (optional OCR)** — if a PDF has no text layer and Tesseract is installed, its pages are OCR'd into the normal pipeline; text PDFs are never OCR'd, and without an engine the app behaves as before
 - **Diagrams & images (optional vision)** — image files (`.png .jpg .jpeg .webp .gif .bmp .tiff .tif`) and images embedded in PDFs are transcribed/described by a vision-capable local model (`qwen2.5vl:7b`) into searchable, citable text; citations open a **View image** viewer
@@ -236,6 +236,7 @@ invalidates every stored vector, so it shouldn't be a one-click action.
 | `MAX_UPLOAD_MB` / `MEDIA_MAX_UPLOAD_MB` | Upload caps | documents 50MB / media 1GB by default |
 | `HOST` / `PORT` | Bind address used by `python -m app` and the launcher | `127.0.0.1` / `8501` |
 | `OCR_ENABLED` / `OCR_LANG` / `OCR_MIN_CHARS_PER_PAGE` / `OCR_DPI` | Optional OCR for text-less PDF pages | `auto` / `eng` / `40` / `200` |
+| `YOUTUBE_TRANSCRIBE_FALLBACK` / `YOUTUBE_MAX_MINUTES` | Captions-free YouTube fallback (download audio + local Whisper) and its duration cap | `auto` / `120` |
 | `TOOL_MAX_ROUNDS` | Tool rounds a research answer may take before it must answer (1–5) | `2` |
 
 **Note:** if you change `EMBED_MODEL`, re-ingest your sources — embeddings from

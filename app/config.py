@@ -120,6 +120,21 @@ def ocr_configured() -> bool:
     return OCR_MODE not in _OCR_FALSY
 
 
+# ---- YouTube (optional audio-transcription fallback) ----
+# A YouTube URL uses its caption track first (fast, no download). When a video
+# has captions disabled, the audio can be downloaded with yt-dlp and transcribed
+# locally by the same Whisper pipeline used for uploaded media: `auto` does that
+# only when yt-dlp is installed; `true` insists; `false` never downloads.
+# Videos longer than YOUTUBE_MAX_MINUTES are refused before any download.
+YOUTUBE_FALLBACK = os.environ.get("YOUTUBE_TRANSCRIBE_FALLBACK", "auto").strip().lower()
+YOUTUBE_MAX_MINUTES = _int_env("YOUTUBE_MAX_MINUTES", 120, minimum=1)
+_YT_FALSY = ("0", "false", "no", "off")
+
+
+def youtube_fallback_configured() -> bool:
+    return YOUTUBE_FALLBACK not in _YT_FALSY
+
+
 # ---- Local tools (Phase 22) ----
 # Maximum tool rounds a single research answer may take before it must answer.
 TOOL_MAX_ROUNDS = _int_env("TOOL_MAX_ROUNDS", 2, minimum=1, maximum=5)
@@ -253,6 +268,14 @@ def config_report() -> list[dict]:
         str(OCR_MIN_CHARS_PER_PAGE),
     )
     add("OCR_DPI", "invalid" if _invalid_int("OCR_DPI", 72) else "optional", str(OCR_DPI))
+
+    # YouTube (optional)
+    add("YOUTUBE_TRANSCRIBE_FALLBACK", "optional", YOUTUBE_FALLBACK)
+    add(
+        "YOUTUBE_MAX_MINUTES",
+        "invalid" if _invalid_int("YOUTUBE_MAX_MINUTES", 1) else "optional",
+        str(YOUTUBE_MAX_MINUTES),
+    )
 
     # Local tools
     add(
