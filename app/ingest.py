@@ -6,11 +6,12 @@ explicitly submits it for ingestion. Only http/https schemes are allowed
 extracted text is stored locally; nothing is re-fetched at runtime.
 """
 
+import json
 import re
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import fitz  # PyMuPDF
 import trafilatura
@@ -73,7 +74,20 @@ INGESTION_MATRIX = (
         "citation": "passage",
         "retry": True,
     },
-    {"kind": "url", "suffixes": (), "metadata": "origin URL", "citation": "passage", "retry": True},
+    {
+        "kind": "url",
+        "suffixes": (),
+        "metadata": "origin URL",
+        "citation": "passage",
+        "retry": True,
+    },
+    {
+        "kind": "youtube",
+        "suffixes": (),
+        "metadata": "origin URL + timestamp",
+        "citation": "seek",
+        "retry": True,
+    },
     {
         "kind": "audio",
         "suffixes": tuple(sorted(AUDIO_SUFFIXES)),
@@ -366,6 +380,126 @@ def parse_text_file(path: Path) -> list[tuple[int | None, str]]:
     return [(None, text)]
 
 
+# ---- YouTube ----
+# A YouTube watch page is a JavaScript app shell: scraping it yields only the
+# site chrome ("About · Press · Copyright…"), never the video. So a YouTube URL
+# takes the caption-track route instead, and the general URL path refuses pages
+# that produce only boilerplate rather than silently ingesting junk.
+YOUTUBE_HOSTS = {
+    "youtube.com",
+    "www.youtube.com",
+    "m.youtube.com",
+    "music.youtube.com",
+    "youtube-nocookie.com",
+    "www.youtube-nocookie.com",
+    "youtu.be",
+}
+_YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
+# Below this many characters, "readable article content" is almost always
+# navigation/footer chrome, not the page's substance.
+MIN_ARTICLE_CHARS = 200
+YOUTUBE_BLOCK_CHARS = 900
+YOUTUBE_BLOCK_SECONDS = 45
+
+
+def youtube_video_id(url: str) -> str | None:
+    """The 11-character video id for any common YouTube URL form, else None."""
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return None
+    host = (parsed.hostname or "").lower()
+    if host not in YOUTUBE_HOSTS:
+        return None
+    if host == "youtu.be":
+        candidate = parsed.path.lstrip("/").split("/")[0]
+    elif parsed.path.rstrip("/") in ("/watch", ""):
+        candidate = parse_qs(parsed.query).get("v", [""])[0]
+    else:
+        parts = [p for p in parsed.path.split("/") if p]
+        candidate = (
+            parts[1] if len(parts) >= 2 and parts[0] in ("shorts", "embed", "live", "v") else ""
+        )
+    return candidate if _YOUTUBE_ID.match(candidate) else None
+
+
+def is_youtube_url(url: str) -> bool:
+    return youtube_video_id(url) is not None
+
+
+def _youtube_snippet(snippet) -> tuple[float, str]:
+    """(start_seconds, text) from either the dict (v0.x) or object (v1.x) shape."""
+    if isinstance(snippet, dict):
+        return float(snippet.get("start", 0) or 0), str(snippet.get("text", "") or "")
+    return float(getattr(snippet, "start", 0) or 0), str(getattr(snippet, "text", "") or "")
+
+
+def _youtube_title(url: str, video_id: str) -> str:
+    """Title/author via YouTube's oEmbed endpoint (no API key, no scraping)."""
+    try:
+        oembed = f"https://www.youtube.com/oembed?format=json&url={quote(url, safe='')}"
+        data = json.loads(_fetch_url(oembed))
+        title = str(data.get("title") or "").strip()
+        author = str(data.get("author_name") or "").strip()
+        if title:
+            return f"{title} — {author}" if author else title
+    except Exception:
+        pass
+    return f"YouTube video {video_id}"
+
+
+def parse_youtube(url: str) -> tuple[str, list[tuple[int | None, str]]]:
+    """Pull a YouTube video's caption track as a timestamped transcript.
+
+    Captions ARE the transcription: manual and auto-generated tracks both come
+    back, so the video's actual spoken content becomes a searchable, citable
+    source with timestamps. Videos with captions disabled, or that are private
+    or region-blocked, raise a clear error (downloading audio and running it
+    through Whisper is a separate, deliberate opt-in — not a silent default).
+    """
+    video_id = youtube_video_id(url)
+    if not video_id:
+        raise IngestError(f"Not a YouTube video URL: {url}")
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+    except Exception as e:  # pragma: no cover - dependency is declared
+        raise IngestError("YouTube transcripts need the 'youtube-transcript-api' package") from e
+    try:
+        snippets = list(YouTubeTranscriptApi().fetch(video_id))
+    except Exception as e:
+        raise IngestError(
+            f"Could not fetch captions for this YouTube video ({e}). It may have "
+            "captions disabled, be private, or be region-blocked."
+        ) from e
+    if not snippets:
+        raise IngestError("YouTube returned an empty transcript for this video")
+
+    segments: list[tuple[int | None, str]] = []
+    buffer: list[str] = []
+    block_start = 0
+    for snippet in snippets:
+        start, text = _youtube_snippet(snippet)
+        text = " ".join(text.split())
+        if not text:
+            continue
+        # A gap in speech starts a NEW block: the snippet after the gap begins
+        # it (and keeps its own timestamp) instead of joining the prior block.
+        if buffer and (int(start) - block_start) >= YOUTUBE_BLOCK_SECONDS:
+            segments.append((block_start, " ".join(buffer)))
+            buffer = []
+        if not buffer:
+            block_start = int(start)
+        buffer.append(text)
+        if len(" ".join(buffer)) >= YOUTUBE_BLOCK_CHARS:
+            segments.append((block_start, " ".join(buffer)))
+            buffer = []
+    if buffer:
+        segments.append((block_start, " ".join(buffer)))
+    if not segments:
+        raise IngestError("YouTube transcript contained no usable text")
+    return _youtube_title(url, video_id), segments
+
+
 def _fetch_url(url: str) -> str:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
@@ -386,14 +520,26 @@ def _fetch_url(url: str) -> str:
 
 
 def parse_url(url: str) -> tuple[str, list[tuple[int | None, str]]]:
-    """Returns (title, segments)."""
+    """Returns (title, segments).
+
+    YouTube URLs return a timestamped caption transcript; everything else is
+    fetched once and reduced to readable article text.
+    """
+    if is_youtube_url(url):
+        return parse_youtube(url)
     downloaded = _fetch_url(url)
-    text = trafilatura.extract(downloaded, include_comments=False)
-    if not text or not text.strip():
-        raise IngestError(f"No readable article content extracted from: {url}")
+    text = (trafilatura.extract(downloaded, include_comments=False) or "").strip()
+    # A JavaScript-rendered page (video sites, app shells, sign-in walls) yields
+    # only chrome. Ingesting that as a "source" would let the model cite
+    # boilerplate, so fail honestly instead.
+    if len(text) < MIN_ARTICLE_CHARS:
+        raise IngestError(
+            "No readable article content extracted from this URL — it may be a "
+            "JavaScript-rendered page, a video, or require sign-in."
+        )
     meta = trafilatura.extract_metadata(downloaded)
     title = meta.title if meta and meta.title else url
-    return title, [(None, text.strip())]
+    return title, [(None, text)]
 
 
 def parse_file(path: Path) -> tuple[str, int | None, list[tuple[int | None, str]]]:

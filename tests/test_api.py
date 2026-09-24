@@ -392,6 +392,47 @@ def test_favicon_served(client):
     assert res.headers["content-type"].startswith("image/")
 
 
+def test_youtube_url_becomes_a_timestamped_source(client, notebook, monkeypatch):
+    """A YouTube URL must ingest the video's actual spoken content (transcript),
+    not the page chrome, and its citations must carry the URL + timestamp."""
+    from app import ingest
+
+    url = "https://www.youtube.com/watch?v=aircAruvnKk"
+    transcript = [
+        (0, "The zephyr wombat festival happens every March in the Atacama Desert."),
+        (95, "Tickets for the zephyr wombat festival cost 42 tugrik each."),
+    ]
+    monkeypatch.setattr(
+        ingest, "parse_youtube", lambda u: ("Wombats Explained — A Channel", transcript)
+    )
+
+    res = client.post(f"/api/notebooks/{notebook['id']}/sources/url", json={"url": url})
+    assert res.status_code == 200, res.text
+    src = res.json()
+    assert src["kind"] == "youtube"
+    assert src["origin"] == url
+
+    chat = client.post(
+        f"/api/notebooks/{notebook['id']}/chat",
+        json={"question": "When is the zephyr wombat festival?", "history": []},
+    )
+    assert "event: sources" in chat.text
+    sources_line = next(row for row in chat.text.splitlines() if row.startswith("data: ["))
+    payload = json.loads(sources_line.removeprefix("data: "))
+    assert payload[0]["kind"] == "youtube"
+    assert payload[0]["origin"] == url
+    assert payload[0]["page"] is not None  # a real timestamp, not None
+
+
+def test_youtube_citations_are_wired_in_the_ui():
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parent.parent / "static" / "app.js").read_text()
+    assert 'kind === "youtube"' in js
+    assert "Open on YouTube at" in js
+    assert 'searchParams.set("t"' in js
+
+
 def test_pwa_manifest_is_installable(anon_client):
     res = anon_client.get("/static/manifest.webmanifest")
     assert res.status_code == 200

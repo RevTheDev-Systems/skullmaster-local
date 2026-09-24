@@ -6,9 +6,12 @@ See `README.md` for usage and the architecture overview.
 ## Implemented (tested)
 
 - **Ingestion** — PDF (page numbers), DOCX (structure + tables), XLSX/XLSM
-  (sheet/row), TXT/MD/RST/CSV/TSV/JSON, HTML, and URL; audio/video transcription
-  with timestamps. All parse failures are `IngestError` → HTTP 422. Matrix and
-  fixtures: `docs/ingestion-matrix.md`, `tests/test_ingest.py`.
+  (sheet/row), TXT/MD/RST/CSV/TSV/JSON, HTML, and URL; **YouTube URLs ingest the
+  caption transcript** with timestamps (citations open the video at the cited
+  moment); audio/video transcription with timestamps. Article pages that yield
+  only boilerplate are refused, not ingested. All parse failures are
+  `IngestError` → HTTP 422. Matrix and fixtures: `docs/ingestion-matrix.md`,
+  `tests/test_ingest.py`.
 - **Retrieval** — structure-aware chunking, LanceDB vectors + BM25 fused with
   reciprocal rank fusion. Benchmark + committed baseline in `evals/`.
 - **Grounded chat** — closed-world prompt, SSE streaming, validated inline

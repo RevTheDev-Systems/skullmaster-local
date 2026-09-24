@@ -19,6 +19,7 @@ dependencies = [
     "faster-whisper>=1.2.1",
     "openpyxl>=3.1.5",
     "httpx>=0.28.1",
+    "youtube-transcript-api>=1.2.4",
 ]
 
 [project.optional-dependencies]

@@ -10,6 +10,7 @@ graphs, documents, slides, video) — running entirely on your machine via
 ## Features
 
 - **Notebooks & sources** — upload PDF, DOCX, XLSX/XLSM, TXT/MD/RST/CSV/TSV/JSON, HTML, images, video, or audio files, or add URLs; multiple sources per notebook
+- **YouTube videos** — a YouTube URL ingests the video's **caption transcript** (manual or auto-generated) as timestamped, searchable, citable text — not the page chrome; a citation opens the video at the cited moment. Videos with captions disabled are refused with a clear message (no silent junk)
 - **Video & audio sources** — uploads are transcribed locally with Whisper, playable in-app, and fully searchable in chat; media citations carry timestamps and a "Play from" button that seeks the player to the cited moment
 - **Scanned PDFs (optional OCR)** — if a PDF has no text layer and Tesseract is installed, its pages are OCR'd into the normal pipeline; text PDFs are never OCR'd, and without an engine the app behaves as before
 - **Diagrams & images (optional vision)** — image files (`.png .jpg .jpeg .webp .gif .bmp .tiff .tif`) and images embedded in PDFs are transcribed/described by a vision-capable local model (`qwen2.5vl:7b`) into searchable, citable text; citations open a **View image** viewer
@@ -425,13 +426,19 @@ rank fusion.
 
 - Answer quality and decline discipline depend on the configured `CHAT_MODEL`;
   very small models cite less reliably.
-- Scanned (image-only) PDFs are OCR'd only if an engine is installed
-  (`brew install tesseract`, `uv pip install pytesseract pillow`); otherwise
-  they're rejected with a clear message. OCR is never applied to text PDFs.
+- Scanned (image-only) PDFs are OCR'd only if an engine is installed:
+  `brew install tesseract` **and** `uv sync --extra ocr` (the Python bindings
+  are an optional extra). Without them, scans are rejected with a clear message.
+  OCR is never applied to text PDFs.
 - Vision-document understanding needs a vision-capable model
   (`ollama pull qwen2.5vl:7b`); without one, images fail with a clear message.
 - Video Overview needs `ffmpeg` on PATH; Slides need neither.
-- URL extraction targets article-like pages; heavily scripted pages may yield nothing.
+- URL extraction targets article-like pages: a page whose readable text is
+  under ~200 characters (scripted app shells, sign-in walls) is **refused**
+  rather than ingested as navigation/footer chrome.
+- YouTube ingestion uses the **caption track**. A video with captions disabled,
+  or that is private/region-blocked, is refused — downloading its audio and
+  transcribing with Whisper is not wired in.
 - Audio Overview generation is synchronous and takes a few minutes; the UI stays
   responsive but the result appears only when finished. Video transcription is
   likewise synchronous (roughly real-time or faster with `whisper-base` on CPU).

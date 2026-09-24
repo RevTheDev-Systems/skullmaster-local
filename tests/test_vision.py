@@ -78,12 +78,29 @@ def test_pdf_embedded_images_are_described(tmp_path, monkeypatch):
 
 
 def test_pdf_images_skipped_without_vision(tmp_path, monkeypatch):
+    """With vision off (and OCR off) a text-less PDF is refused, not read.
+
+    Both engines are forced off here so the test is deterministic regardless of
+    whether Tesseract happens to be installed on the machine running it.
+    """
     monkeypatch.setattr(ingest, "vision_available", lambda: False)
+    monkeypatch.setattr(ingest, "ocr_available", lambda: False)
     called = []
     monkeypatch.setattr(ingest, "analyze_image", lambda data: called.append(1) or "x")
     with pytest.raises(ingest.IngestError, match="scanned"):
         ingest.parse_pdf(_pdf_with_embedded_image(tmp_path / "img.pdf"))
     assert called == []
+
+
+def test_pdf_image_is_ocrd_when_ocr_is_available(tmp_path, monkeypatch):
+    """The flip side: OCR is enabled, so a text-less PDF is read via Tesseract
+    rather than refused. Mocks the engine so the assertion is host-independent."""
+    monkeypatch.setattr(ingest, "vision_available", lambda: False)
+    monkeypatch.setattr(ingest, "ocr_configured", lambda: True)
+    monkeypatch.setattr(ingest, "ocr_available", lambda: True)
+    monkeypatch.setattr(ingest, "ocr_image", lambda png, lang: "OCR recovered the scan")
+    segments = ingest.parse_pdf(_pdf_with_embedded_image(tmp_path / "img.pdf"))
+    assert any("OCR recovered the scan" in text for _, text in segments)
 
 
 # ---------- API ----------

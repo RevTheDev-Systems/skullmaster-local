@@ -359,3 +359,150 @@ def test_url_positive(monkeypatch):
     title, segments = ingest.parse_url("https://example.com/article")
     assert title == "My Article"
     assert "Atlas sensor network" in segments[0][1]
+
+
+# ---------- YouTube transcripts ----------
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://www.youtube.com/watch?v=aircAruvnKk", "aircAruvnKk"),
+        ("https://youtube.com/watch?v=aircAruvnKk&t=42s", "aircAruvnKk"),
+        ("https://m.youtube.com/watch?v=aircAruvnKk", "aircAruvnKk"),
+        ("https://music.youtube.com/watch?v=aircAruvnKk", "aircAruvnKk"),
+        ("https://youtu.be/aircAruvnKk", "aircAruvnKk"),
+        ("https://youtu.be/aircAruvnKk?t=10", "aircAruvnKk"),
+        ("https://www.youtube.com/shorts/aircAruvnKk", "aircAruvnKk"),
+        ("https://www.youtube.com/embed/aircAruvnKk", "aircAruvnKk"),
+        ("https://www.youtube.com/live/aircAruvnKk", "aircAruvnKk"),
+    ],
+)
+def test_youtube_video_id_recognised(url, expected):
+    assert ingest.youtube_video_id(url) == expected
+    assert ingest.is_youtube_url(url) is True
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/watch?v=aircAruvnKk",
+        "https://www.youtube.com/watch?v=tooshort",
+        "https://www.youtube.com/",
+        "https://notyoutube.com/aircAruvnKk",
+        "not a url",
+    ],
+)
+def test_youtube_video_id_rejects_non_videos(url):
+    assert ingest.youtube_video_id(url) is None
+    assert ingest.is_youtube_url(url) is False
+
+
+class _Snippet:
+    def __init__(self, start, text):
+        self.start = start
+        self.text = text
+
+
+class _FakeTranscriptApi:
+    """Stands in for youtube_transcript_api.YouTubeTranscriptApi (v1.x shape)."""
+
+    snippets: list = []
+    error: Exception | None = None
+    calls: list = []
+
+    def fetch(self, video_id):
+        type(self).calls.append(video_id)
+        if type(self).error:
+            raise type(self).error
+        return list(type(self).snippets)
+
+
+def _patch_transcript_api(monkeypatch, snippets=None, error=None):
+    import youtube_transcript_api
+
+    _FakeTranscriptApi.snippets = snippets or []
+    _FakeTranscriptApi.error = error
+    _FakeTranscriptApi.calls = []
+    monkeypatch.setattr(youtube_transcript_api, "YouTubeTranscriptApi", _FakeTranscriptApi)
+    return _FakeTranscriptApi
+
+
+def test_parse_youtube_returns_timestamped_transcript(monkeypatch):
+    _patch_transcript_api(
+        monkeypatch,
+        snippets=[
+            _Snippet(4.2, "This is a three."),
+            _Snippet(9.9, "It is sloppily written."),
+            _Snippet(700.0, "A later point entirely."),
+        ],
+    )
+    monkeypatch.setattr(ingest, "_youtube_title", lambda url, vid: "A Video — A Channel")
+    title, segments = ingest.parse_youtube("https://www.youtube.com/watch?v=aircAruvnKk")
+    assert title == "A Video — A Channel"
+    # A >45s gap starts a new block, so the transcript is timestamped, not one blob.
+    assert [sec for sec, _ in segments] == [4, 700]
+    assert "This is a three." in segments[0][1]
+    assert "A later point" in segments[1][1]
+
+
+def test_parse_youtube_groups_dense_snippets_into_one_block(monkeypatch):
+    _patch_transcript_api(monkeypatch, snippets=[_Snippet(i * 2, f"line {i}") for i in range(10)])
+    monkeypatch.setattr(ingest, "_youtube_title", lambda url, vid: "T")
+    _, segments = ingest.parse_youtube("https://youtu.be/aircAruvnKk")
+    assert len(segments) == 1 and segments[0][0] == 0
+
+
+def test_parse_youtube_without_captions_fails_clearly(monkeypatch):
+    _patch_transcript_api(monkeypatch, error=RuntimeError("no transcript found"))
+    with pytest.raises(ingest.IngestError, match="captions"):
+        ingest.parse_youtube("https://www.youtube.com/watch?v=aircAruvnKk")
+
+
+def test_parse_youtube_empty_transcript_fails(monkeypatch):
+    _patch_transcript_api(monkeypatch, snippets=[])
+    with pytest.raises(ingest.IngestError, match="empty transcript"):
+        ingest.parse_youtube("https://www.youtube.com/watch?v=aircAruvnKk")
+
+
+def test_parse_url_routes_youtube_to_transcripts(monkeypatch):
+    monkeypatch.setattr(ingest, "parse_youtube", lambda url: ("Video", [(0, "spoken words")]))
+    title, segments = ingest.parse_url("https://youtu.be/aircAruvnKk")
+    assert title == "Video" and segments == [(0, "spoken words")]
+
+
+def test_parse_url_rejects_boilerplate_only_pages(monkeypatch):
+    """A JS-rendered page (e.g. a video site) yields only chrome — refuse it
+    rather than ingesting junk that the model could then cite."""
+    chrome = (
+        "<html><body><nav>About Press Copyright Contact us Creators "
+        "Advertise Developers Terms Privacy</nav></body></html>"
+    ).encode()
+    monkeypatch.setattr(ingest.urllib.request, "urlopen", lambda *a, **k: _FakeResponse(chrome))
+    with pytest.raises(ingest.IngestError, match="readable article content"):
+        ingest.parse_url("https://example.com/video-page")
+
+
+def test_ingestion_matrix_includes_youtube():
+    rows = {row["kind"]: row for row in ingest.INGESTION_MATRIX}
+    assert rows["youtube"]["citation"] == "seek"
+    assert "timestamp" in rows["youtube"]["metadata"]
+
+
+def test_ingestion_matrix_has_no_duplicate_or_missing_kinds():
+    """The matrix is the contract; a duplicate (which silently replaces a kind
+    in a dict) or a dropped kind must fail loudly."""
+    kinds = [row["kind"] for row in ingest.INGESTION_MATRIX]
+    assert len(kinds) == len(set(kinds)), f"duplicate kinds: {kinds}"
+    assert set(kinds) >= {
+        "pdf",
+        "docx",
+        "sheet",
+        "text",
+        "html",
+        "url",
+        "youtube",
+        "audio",
+        "video",
+        "image",
+    }

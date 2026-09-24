@@ -61,7 +61,7 @@ def format_timestamp(seconds: int) -> str:
 
 def _location(c: dict) -> str:
     """Human label for where an excerpt sits inside its source."""
-    if c.get("kind") in ("video", "audio") and c.get("page") is not None:
+    if c.get("kind") in ("video", "audio", "youtube") and c.get("page") is not None:
         return f" (at {format_timestamp(c['page'])})"
     if c.get("page"):
         return f" (page {c['page']})"
@@ -108,9 +108,12 @@ def answer_stream(
     """
     llm = llm or get_llm()
     chunks = hybrid_search(notebook_id, question, k=TOP_K, llm=llm)
-    kinds = {s["id"]: s["kind"] for s in db.list_sources(notebook_id)}
+    sources = {s["id"]: s for s in db.list_sources(notebook_id)}
     for c in chunks:
-        c["kind"] = kinds.get(c["source_id"], "text")
+        info = sources.get(c["source_id"], {})
+        c["kind"] = info.get("kind", "text")
+        # The source URL, so a YouTube citation can open the video at its time.
+        c["origin"] = info.get("origin")
 
     messages = [{"role": "system", "content": load_prompt("grounded_answer")}]
     for turn in (history or [])[-CONTEXT_HISTORY_TURNS * 2 :]:
@@ -163,12 +166,14 @@ def research_stream(
         for source in db.list_sources(nb_id):
             meta[source["id"]] = {
                 "kind": source["kind"],
+                "origin": source["origin"],
                 "notebook_id": nb_id,
                 "notebook_name": name,
             }
     for c in chunks:
         info = meta.get(c["source_id"], {})
         c["kind"] = info.get("kind", "text")
+        c["origin"] = info.get("origin")
         c["notebook_name"] = info.get("notebook_name", "")
 
     messages = [{"role": "system", "content": load_prompt("grounded_answer")}]

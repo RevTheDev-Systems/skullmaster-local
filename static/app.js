@@ -273,8 +273,8 @@ function fmtTime(seconds) {
 }
 
 const KIND_ICONS = {
-  pdf: "📕", url: "🔗", docx: "📘", sheet: "📊", video: "🎬", audio: "🎵",
-  image: "🖼️", text: "📄",
+  pdf: "📕", url: "🔗", youtube: "📺", docx: "📘", sheet: "📊", video: "🎬",
+  audio: "🎵", image: "🖼️", text: "📄",
 };
 
 $("#nb-select").addEventListener("change", async (e) => {
@@ -531,11 +531,12 @@ $("#chat-clear").addEventListener("click", async () => {
 });
 
 function showCitation(c) {
+  const isYoutube = c.kind === "youtube";
   const isPlayable = c.kind === "video" || c.kind === "audio";
   const isImage = c.kind === "image";
-  const isMedia = isPlayable || isImage;
+  const isMedia = isPlayable || isImage || isYoutube;
   const prefix = c.notebook_name ? `${c.notebook_name} › ` : "";
-  const where = isPlayable && c.page != null
+  const where = (isPlayable || isYoutube) && c.page != null
     ? `${c.source_name} — at ${fmtTime(c.page)}`
     : c.page ? `${c.source_name} — page ${c.page}` : c.source_name;
   $("#modal-title").textContent = prefix + where;
@@ -543,10 +544,12 @@ function showCitation(c) {
   const play = $("#modal-play");
   play.hidden = !isMedia;
   if (isMedia) {
-    play.textContent = isPlayable ? `▶ Play from ${fmtTime(c.page || 0)}` : "🖼️ View image";
+    play.textContent = isYoutube
+      ? `▶ Open on YouTube at ${fmtTime(c.page || 0)}`
+      : isPlayable ? `▶ Play from ${fmtTime(c.page || 0)}` : "🖼️ View image";
     play.onclick = () => {
       closeModal();
-      openMedia(c.source_id, c.source_name, c.kind, c.page || 0);
+      openMedia(c.source_id, c.source_name, c.kind, c.page || 0, c.origin);
     };
   }
   $("#modal-backdrop").hidden = false;
@@ -559,10 +562,44 @@ $("#modal-backdrop").addEventListener("click", (e) => {
 });
 
 // ---------- Media playback modal ----------
-function openMedia(sourceId, name, kind, seekSeconds) {
+function openMedia(sourceId, name, kind, seekSeconds, origin) {
   $("#media-title").textContent = name;
   const body = $("#media-body");
   body.innerHTML = "";
+  // YouTube sources are a transcript of a remote video (no local media file),
+  // so the citation opens the video at the cited moment instead of playing it.
+  if (kind === "youtube") {
+    const at = Math.max(0, Math.floor(seekSeconds || 0));
+    if (!origin) {
+      toast("This YouTube source has no stored URL to open");
+      return;
+    }
+    let link = origin;
+    try {
+      const u = new URL(origin);
+      u.searchParams.set("t", `${at}s`);
+      link = u.toString();
+    } catch {
+      link = `${origin}${origin.includes("?") ? "&" : "?"}t=${at}s`;
+    }
+    const wrap = document.createElement("div");
+    wrap.className = "media-youtube";
+    const a = document.createElement("a");
+    a.href = link;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.className = "btn primary";
+    a.textContent = `▶ Open on YouTube at ${fmtTime(at)}`;
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "Opens the video in a new tab at the cited moment. The transcript is stored locally as the source.";
+    wrap.append(a, note);
+    body.appendChild(wrap);
+    window.open(link, "_blank", "noopener");
+    $("#media-backdrop").hidden = false;
+    $("#media-close").focus();
+    return;
+  }
   if (kind === "image") {
     const img = document.createElement("img");
     img.className = "media-image";
@@ -1771,7 +1808,7 @@ function renderSearch(data) {
       btn.className = "search-hit";
       const where = document.createElement("span");
       where.className = "search-where";
-      const isMedia = hit.kind === "video" || hit.kind === "audio";
+      const isMedia = hit.kind === "video" || hit.kind === "audio" || hit.kind === "youtube";
       where.textContent = isMedia && hit.page != null
         ? `${hit.source_name} — at ${fmtTime(hit.page)}`
         : hit.page ? `${hit.source_name} — page ${hit.page}` : hit.source_name;

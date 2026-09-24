@@ -692,8 +692,11 @@ def sources_add_url(notebook_id: str, body: UrlIn):
     if dup:
         raise HTTPException(409, f'Already in this notebook as "{dup["name"]}"')
 
+    # YouTube sources hold a timestamped transcript (kind "youtube") so their
+    # citations can open the video at the right moment; other URLs are articles.
+    kind = "youtube" if ingest.is_youtube_url(url) else "url"
     src = db.create_source(
-        notebook_id, title, "url", url, None, len(chunks), content_hash=content_hash
+        notebook_id, title, kind, url, None, len(chunks), content_hash=content_hash
     )
     _index_chunks(notebook_id, src["id"], src["name"], chunks)
     return db.get_source(src["id"])
@@ -791,6 +794,7 @@ def chat(notebook_id: str, body: ChatIn):
             "source_id": c["source_id"],
             "source_name": c["source_name"],
             "kind": c.get("kind", "text"),
+            "origin": c.get("origin"),
             "page": c["page"],
             "text": c["text"],
         }
@@ -877,6 +881,7 @@ def research(body: ResearchIn):
             "notebook_id": c.get("notebook_id"),
             "notebook_name": c.get("notebook_name", ""),
             "kind": c.get("kind", "text"),
+            "origin": c.get("origin"),
             "page": c["page"],
             "text": c["text"],
         }

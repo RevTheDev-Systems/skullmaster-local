@@ -12,9 +12,28 @@ drift. Every row has both a positive and a negative fixture.
 | TXT/MD/RST/CSV/TSV/JSON | Yes | none        | passage  | Yes             |
 | HTML (`.html/.htm`)| Yes  | heading structure| passage  | Yes             |
 | URL (http/https)  | Yes   | origin URL       | passage  | Yes             |
+| YouTube URL       | Yes   | origin URL + timestamp | seek | Yes           |
 | Audio             | Yes   | timestamp        | seek     | Yes             |
 | Video             | Yes   | timestamp        | seek     | Yes             |
 | Image             | Yes   | vision text      | passage  | Yes             |
+
+## YouTube videos
+
+A YouTube watch page is a JavaScript app shell: scraping it yields only the
+site chrome ("About · Press · Copyright…") — never the video. So YouTube URLs
+take a **caption-track** route instead (`app/ingest.py: parse_youtube`):
+
+- The 11-character video id is recognised from every common form
+  (`watch?v=`, `youtu.be/`, `/shorts/`, `/embed/`, `/live/`, `m.`/`music.`).
+- The transcript is pulled with `youtube-transcript-api` (manual **and**
+  auto-generated captions) and grouped into ~45-second / ~900-character blocks,
+  each carrying its **start second** — so citations are timestamped and the
+  citation's play action opens the video at the cited moment.
+- The title comes from YouTube's oEmbed endpoint (no API key, no scraping).
+- **Captions disabled / private / region-blocked** → a clear `IngestError`
+  (HTTP 422). Downloading the audio and running it through Whisper is a
+  deliberate, separate opt-in — never a silent default.
+- A video with no captions is *not* silently ingested as boilerplate.
 
 ## Policies
 
@@ -23,6 +42,11 @@ drift. Every row has both a positive and a negative fixture.
   size cap. Nothing is re-fetched at runtime.
 - **Fail closed.** Any parse failure raises `IngestError`, which the API maps
   to HTTP `422` — corrupt/empty/unsupported inputs never 500.
+- **No boilerplate as a source.** The general URL path refuses any page whose
+  readable extraction is under 200 characters (`MIN_ARTICLE_CHARS`). A
+  JavaScript-rendered page, a video site, or a sign-in wall yields only
+  navigation/footer chrome, and ingesting that would let the model "cite" junk.
+  It fails honestly instead.
 - **Retry.** A source that failed at the embedding/indexing step is stored as
   `status=failed` and can be re-indexed from the original file/URL
   (`POST /api/notebooks/{id}/sources/{sid}/retry`).
